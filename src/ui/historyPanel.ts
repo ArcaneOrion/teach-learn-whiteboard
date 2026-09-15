@@ -203,13 +203,37 @@ export class HistoryPanel {
   private async loadThumb(attachmentId: string, img: HTMLImageElement): Promise<void> {
     try {
       const found = await this.store.getAttachment(attachmentId);
-      if (found === null) return;
+      if (found === null) {
+        this.markThumbMissing(img);
+        return;
+      }
       const url = URL.createObjectURL(found.blob);
       this.thumbs.set(attachmentId, url);
       img.src = url;
     } catch {
-      // 缩略图加载失败不影响搜索本身
+      // 缩略图加载失败不影响搜索本身，但要说清楚，别留个空白框
+      this.markThumbMissing(img);
     }
+  }
+
+  /**
+   * 这张截图不在这台设备上 —— 明说，别留一个加载失败的空白框。
+   *
+   * ★ 为什么会有这种情况：**截图不参与同步**。
+   * 它不是事件（事件日志里只有一条 `board.snapshot` 记着"拍过一张"和附件 id），
+   * 图片本体是单独的 blob，同步协议根本不传它。
+   *
+   * 所以另一台设备同步过来之后：事件有了、板面内容有了、笔迹有了，
+   * **唯独图片本体不在本地**。原来这里 `return` 就完事，
+   * 界面上是一个 0×0 的破图 —— 用户只会觉得"这 App 坏了"。
+   * 现在换成一句话，并说明该怎么办。
+   */
+  private markThumbMissing(img: HTMLImageElement): void {
+    const note = document.createElement('div');
+    note.className = 'hit__thumb-missing';
+    note.textContent = '截图不在这台设备上';
+    note.title = '截图不参与同步（图片本体不进事件日志）。在这台设备上重新拍一张就行。';
+    img.replaceWith(note);
   }
 
   // ── 按日期的学习记录 ────────────────────────────────────────

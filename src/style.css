@@ -1098,3 +1098,15 @@ body {
   color: #4f46e5;
   font-size: 11px;
 }
+
+/* 截图不在本机（它不参与同步）—— 说清楚，别留个加载失败的空白框 */
+.hit__thumb-missing {
+  flex: none;
+  align-self: center;
+  padding: 4px 8px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: help;
+}
