@@ -261,6 +261,92 @@ describe('视觉回流（截图）', () => {
   });
 });
 
+// ── 反馈 ──────────────────────────────────────────────────────
+
+describe('对 AI 输出表态', () => {
+  it('★ 块记住了它是哪条事件写出来的（反馈要指向事件，不是位置）', () => {
+    const log = makeLog();
+    const event = log.aiWrite({ op: 'append', html: '<p>x</p>', region: 'a' });
+    const block = composeBoard('b1', log.all).blocks[0];
+    expect(block?.sourceEventId).toBe(event.id);
+  });
+
+  it('set 改写之后，块指向的是**新的**那条事件', () => {
+    const log = makeLog();
+    log.aiWrite({ op: 'append', html: '<p>旧</p>', region: 'a' });
+    const rewrite = log.aiWrite({ op: 'set', region: 'a', html: '<p>新</p>' });
+
+    const block = composeBoard('b1', log.all).blocks[0];
+    // 块现在的内容是 set 写的，反馈该指向 set
+    expect(block?.sourceEventId).toBe(rewrite.id);
+  });
+
+  it('表态记进板面状态', () => {
+    const log = makeLog();
+    const written = log.aiWrite({ op: 'append', html: '<p>x</p>', region: 'a' });
+    log.giveFeedback(written.id, 'useful');
+
+    expect(composeBoard('b1', log.all).feedback[written.id]).toBe('useful');
+  });
+
+  it('三种表态都能记', () => {
+    const log = makeLog();
+    const a = log.aiWrite({ op: 'append', html: '<p>a</p>', region: 'a' });
+    const b = log.aiWrite({ op: 'append', html: '<p>b</p>', region: 'b' });
+    const c = log.aiWrite({ op: 'append', html: '<p>c</p>', region: 'c' });
+
+    log.giveFeedback(a.id, 'useful');
+    log.giveFeedback(b.id, 'useless');
+    log.giveFeedback(c.id, 'wrong');
+
+    const { feedback } = composeBoard('b1', log.all);
+    expect(feedback[a.id]).toBe('useful');
+    expect(feedback[b.id]).toBe('useless');
+    expect(feedback[c.id]).toBe('wrong');
+  });
+
+  it('★ 改主意时覆盖，不是叠加 —— 板面仍然是事件的纯函数', () => {
+    const log = makeLog();
+    const written = log.aiWrite({ op: 'append', html: '<p>x</p>', region: 'a' });
+    log.giveFeedback(written.id, 'useless');
+    log.giveFeedback(written.id, 'useful');
+
+    expect(composeBoard('b1', log.all).feedback[written.id]).toBe('useful');
+    // 日志里两条反馈都留着（可追溯），但折叠结果只有一个
+    expect(log.all.filter((e) => e.kind === 'feedback')).toHaveLength(2);
+  });
+
+  it('反馈不改变板面内容', () => {
+    const log = makeLog();
+    const written = log.aiWrite({ op: 'append', html: '<p>x</p>', region: 'a' });
+    log.writeStroke(stroke('s1'));
+    const before = composeBoard('b1', log.all);
+
+    log.giveFeedback(written.id, 'useful');
+    const after = composeBoard('b1', log.all);
+
+    expect(after.blocks).toEqual(before.blocks);
+    expect(after.strokes).toEqual(before.strokes);
+  });
+
+  it('反馈事件由用户产生（不是 AI 自己给自己打分）', () => {
+    const log = makeLog();
+    const written = log.aiWrite({ op: 'append', html: '<p>x</p>' });
+    expect(log.giveFeedback(written.id, 'useful').actor).toBe('user');
+  });
+
+  it('乱序到达时折叠结果一致（同步的地基）', () => {
+    const log = makeLog();
+    const written = log.aiWrite({ op: 'append', html: '<p>x</p>', region: 'a' });
+    log.giveFeedback(written.id, 'wrong');
+    log.writeStroke(stroke('s1'));
+
+    const inOrder = composeBoard('b1', log.all);
+    const reversed = composeBoard('b1', [...log.all].reverse());
+    expect(reversed).toEqual(inOrder);
+  });
+});
+
 // ── 顺序鲁棒性（同步的地基）──────────────────────────────────
 
 describe('事件顺序', () => {

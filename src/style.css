@@ -144,6 +144,7 @@ body {
    ─────────────────────────────────────────────────────────── */
 
 .block {
+  position: relative; /* 表态徽标要绝对定位在右上角 */
   margin: 0 0 18px;
   padding: 12px 14px;
   border: 1px solid var(--line);
@@ -249,6 +250,46 @@ body {
 .block svg {
   max-width: 100%;
   height: auto;
+}
+
+/* 表态徽标：给过反馈的块右上角挂一个 */
+.block__feedback {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 15px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* ── 反馈菜单（长按 AI 写的一块弹出来）──────────────────────── */
+
+.feedback-menu {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 220px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(31, 35, 40, 0.16);
+}
+
+.feedback-menu__hint {
+  width: 100%;
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.feedback-menu .btn {
+  flex: 1;
+  padding: 0 6px;
+  font-size: 12.5px;
+  white-space: nowrap;
 }
 
 /* ── 工具栏 ── */

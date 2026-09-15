@@ -16,8 +16,16 @@
  */
 
 import type { BoardBlock } from '../core/board';
+import type { FeedbackRating } from '../core/types';
 import { sanitizeBoardHtml } from '../sanitize';
 import { planRender } from './renderPlan';
+
+/** 表态对应的图标与说明 */
+const FEEDBACK_BADGE: Record<FeedbackRating, { icon: string; label: string }> = {
+  useful: { icon: '👍', label: '你说这条有用' },
+  useless: { icon: '👎', label: '你说这条没用' },
+  wrong: { icon: '❌', label: '你说这条讲错了' },
+};
 
 export class ContentLayer {
   /** key → DOM 元素 */
@@ -27,8 +35,12 @@ export class ContentLayer {
 
   constructor(private readonly root: HTMLElement) {}
 
-  /** 按板面块更新内容层。只做最小改动，不做整块重建。 */
-  render(blocks: readonly BoardBlock[]): void {
+  /**
+   * 按板面块更新内容层。只做最小改动，不做整块重建。
+   *
+   * @param feedback 被评价的事件 id → 表态。有表态的块右侧会挂一个小徽标
+   */
+  render(blocks: readonly BoardBlock[], feedback: Record<string, FeedbackRating> = {}): void {
     const plan = planRender(blocks, this.html);
 
     // 1) 删掉消失的块
@@ -52,7 +64,28 @@ export class ContentLayer {
       this.html.set(item.key, item.html);
     }
 
-    // 3) 按最终顺序重排。只在位置不对时才移动，避免无谓的 DOM 抖动
+    // 3) 徽标 + 来源事件标记。每轮都刷一遍（表态可以改）
+    for (const block of blocks) {
+      const key = block.region !== null ? `r:${block.region}` : null;
+      if (key === null) continue;
+      const el = this.nodes.get(key);
+      if (el === undefined) continue;
+
+      // 长按要给这条反馈，得知道它是哪条事件写出来的
+      el.dataset['sourceEvent'] = block.sourceEventId;
+
+      el.querySelector('.block__feedback')?.remove();
+      const rating = feedback[block.sourceEventId];
+      if (rating !== undefined) {
+        const badge = document.createElement('span');
+        badge.className = `block__feedback block__feedback--${rating}`;
+        badge.textContent = FEEDBACK_BADGE[rating].icon;
+        badge.title = FEEDBACK_BADGE[rating].label;
+        el.append(badge);
+      }
+    }
+
+    // 4) 按最终顺序重排。只在位置不对时才移动，避免无谓的 DOM 抖动
     let cursor: ChildNode | null = this.root.firstChild;
     for (const key of plan.order) {
       const el = this.nodes.get(key);

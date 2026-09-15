@@ -19,7 +19,7 @@ import type {
   EventPayload,
 } from './types';
 import type { Stroke } from '../ink/strokes';
-import type { BoardOp, Choice } from './types';
+import type { BoardOp, Choice, FeedbackRating } from './types';
 
 let counter = 0;
 
@@ -189,5 +189,16 @@ export class EventLog {
       text: params.text,
       caption: params.caption ?? null,
     });
+  }
+
+  // ── 反馈 ────────────────────────────────────────────────────
+
+  /**
+   * 对 AI 某次输出表态。
+   *
+   * @param targetEventId 被评价的那条 ai.write 事件的 id
+   */
+  giveFeedback(targetEventId: string, rating: FeedbackRating): EventOf<'feedback'> {
+    return this.append('user', 'feedback', { targetEventId, rating });
   }
 }

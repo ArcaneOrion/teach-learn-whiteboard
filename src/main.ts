@@ -23,10 +23,11 @@ import './style.css';
 import type { Api, Context, Model } from '@earendil-works/pi-ai';
 
 import type { InkStyle } from './ink/input';
-import type { BoardEvent } from './core/types';
+import type { BoardEvent, FeedbackRating } from './core/types';
 import type { BoardRecord, Store } from './store/types';
 import type { SessionRecord } from './core/session';
 import type { ChannelConfig } from './ai/channels';
+import type { InkInputHandle } from './ink/input';
 
 import { InkRenderer } from './ink/renderer';
 import { attachInkInput } from './ink/input';
@@ -114,6 +115,9 @@ conversation.tools = boardTools;
 
 let running = false;
 
+/** 手写输入的句柄。长按要弹反馈时，得能把正在画的那一笔撤掉 */
+let inkHandle: InkInputHandle | null = null;
+
 /**
  * 已经拍好、等着和文字一起发出去的截图。
  *
@@ -136,7 +140,7 @@ const content = new ContentLayer(contentEl);
 function recompose(): void {
   if (log === null) return;
   board = composeBoard(boardId, log.all);
-  content.render(board.blocks);
+  content.render(board.blocks, board.feedback);
   paintChoices();
   scheduleHud();
 }
@@ -651,6 +655,121 @@ pendingClearBtn.addEventListener('click', () => {
   setStatus('已取消这张截图');
 });
 
+// ── 长按 AI 写的一块 → 给反馈 ────────────────────────────────
+//
+// 产品文档的取舍：**一个手势就能给** —— 长按弹出三个按钮，不要弹窗、不要填表。
+//
+// 难点：墨迹层（canvas）盖在内容层上面，指针事件全被它接走了，
+// 所以要先临时关掉它的 pointer-events，用 elementFromPoint「看穿」它找到下面的块。
+// （教学平面的 forwardClick 用的是同一招，只是方向相反。）
+
+const LONG_PRESS_MS = 600;
+/** 手指挪动超过这么多像素就不算长按（那是在画线） */
+const LONG_PRESS_MOVE_PX = 8;
+
+let pressTimer: number | null = null;
+let pressOrigin: { x: number; y: number } | null = null;
+
+function cancelPress(): void {
+  if (pressTimer !== null) {
+    window.clearTimeout(pressTimer);
+    pressTimer = null;
+  }
+  pressOrigin = null;
+}
+
+function hideFeedbackMenu(): void {
+  document.querySelector('#feedback-menu')?.remove();
+}
+
+/**
+ * 找出某个视口坐标落在哪个板面块上。
+ *
+ * ⚠️ 这里**不能用 `document.elementFromPoint`**，踩过这个坑：
+ *   内容层为了把指针事件让给上面的墨迹层，设了 `pointer-events: none`；
+ *   而 `elementFromPoint` **会跳过 `pointer-events: none` 的元素** ——
+ *   所以它永远看不到那些块，只会返回底下的 .board。
+ *   （教学平面的做法是"临时把上层关掉再穿透"，但它那里的内容层本身是可点中的。）
+ *
+ * 几何判定反而更直接：块是纵向堆叠的、互不重叠，比一下矩形就够了。
+ */
+function blockAt(clientX: number, clientY: number): HTMLElement | null {
+  const blocks = contentEl.querySelectorAll<HTMLElement>('.block');
+  for (const el of blocks) {
+    const r = el.getBoundingClientRect();
+    if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+      return el;
+    }
+  }
+  return null;
+}
+
+/**
+ * 长按期间屏幕上已经落下了一个点 —— 先把它撤掉，
+ * 否则「长按给反馈」会顺手在板上点一个墨点。
+ */
+function openFeedbackAt(clientX: number, clientY: number): void {
+  inkHandle?.abort();
+
+  const block = blockAt(clientX, clientY);
+  const sourceEventId = block?.dataset['sourceEvent'];
+
+  if (block === null || sourceEventId === undefined) {
+    setStatus('长按可以对 AI 写的内容表态 —— 这次长按的位置上没有 AI 写的内容');
+    return;
+  }
+  showFeedbackMenu(clientX, clientY, sourceEventId);
+}
+
+function showFeedbackMenu(clientX: number, clientY: number, sourceEventId: string): void {
+  hideFeedbackMenu();
+
+  const menu = document.createElement('div');
+  menu.className = 'feedback-menu';
+  menu.id = 'feedback-menu';
+
+  const hint = document.createElement('div');
+  hint.className = 'feedback-menu__hint';
+  hint.textContent = '这一条讲得怎么样？';
+  menu.append(hint);
+
+  const options: { rating: FeedbackRating; icon: string; label: string }[] = [
+    { rating: 'useful', icon: '👍', label: '有用' },
+    { rating: 'useless', icon: '👎', label: '没用' },
+    { rating: 'wrong', icon: '❌', label: '讲错了' },
+  ];
+
+  for (const option of options) {
+    const btn = document.createElement('button');
+    btn.className = 'btn';
+    btn.type = 'button';
+    btn.textContent = `${option.icon} ${option.label}`;
+    btn.addEventListener('click', () => {
+      log?.giveFeedback(sourceEventId, option.rating);
+      hideFeedbackMenu();
+      recompose();
+      setStatus(`已记下：这条「${option.label}」。将来记忆系统会用到它。`);
+    });
+    menu.append(btn);
+  }
+
+  // 贴着按下的位置弹，但不超出屏幕
+  const WIDTH = 220;
+  const HEIGHT = 132;
+  menu.style.left = `${Math.max(8, Math.min(clientX, window.innerWidth - WIDTH - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(clientY + 10, window.innerHeight - HEIGHT))}px`;
+  document.body.append(menu);
+}
+
+// 点别处或按 Esc 就收起来
+document.addEventListener('pointerdown', (e) => {
+  const menu = document.querySelector('#feedback-menu');
+  if (menu !== null && !menu.contains(e.target as Node)) hideFeedbackMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') hideFeedbackMenu();
+});
+
 // ── 工具栏 ────────────────────────────────────────────────────
 
 function applyTool(): void {
@@ -933,7 +1052,7 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
 
   if (loadedCount === 0) theLog.createBoard('未命名');
 
-  attachInkInput(
+  inkHandle = attachInkInput(
     canvas,
     {
       onBegin(stroke) {
@@ -960,6 +1079,30 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
     },
     () => inkStyle,
   );
+
+  // 长按检测。放在 attachInkInput 之后 —— 两者互不干扰，但顺序清楚了更好读
+  canvas.addEventListener('pointerdown', (e) => {
+    if (tool === 'pan') return;
+    cancelPress();
+    pressOrigin = { x: e.clientX, y: e.clientY };
+    pressTimer = window.setTimeout(() => {
+      pressTimer = null;
+      const at = pressOrigin;
+      pressOrigin = null;
+      if (at !== null) openFeedbackAt(at.x, at.y);
+    }, LONG_PRESS_MS);
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (pressOrigin === null) return;
+    const dx = e.clientX - pressOrigin.x;
+    const dy = e.clientY - pressOrigin.y;
+    // 手指挪动了就是在画线，不是长按
+    if (dx * dx + dy * dy > LONG_PRESS_MOVE_PX * LONG_PRESS_MOVE_PX) cancelPress();
+  });
+
+  canvas.addEventListener('pointerup', cancelPress);
+  canvas.addEventListener('pointercancel', cancelPress);
 
   settingsPanel = makeSettingsPanel();
 

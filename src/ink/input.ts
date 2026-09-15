@@ -45,15 +45,26 @@ function sourceOf(e: PointerEvent): StrokeSource {
   return 'mouse';
 }
 
+export interface InkInputHandle {
+  /** 解绑所有事件（组件销毁时调用） */
+  detach(): void;
+  /**
+   * 丢弃正在画的那一笔。
+   *
+   * 什么时候用：用户**长按**板面时我们要弹反馈菜单 —— 那时候屏幕上已经落了
+   * 一个点，得把它撤掉，否则「长按」会顺便画出一个点。
+   */
+  abort(): void;
+}
+
 /**
  * 把输入采集挂到画布上。
- * @returns 解绑函数（组件销毁时调用）
  */
 export function attachInkInput(
   canvas: HTMLCanvasElement,
   handlers: InkHandlers,
   getStyle: () => InkStyle,
-): () => void {
+): InkInputHandle {
   /** 当前正在跟的 pointerId。只有它的事件会被采纳 */
   let activeId: number | null = null;
   let active: Stroke | null = null;
@@ -153,11 +164,28 @@ export function attachInkInput(
   canvas.addEventListener('pointercancel', onPointerCancel);
   canvas.addEventListener('lostpointercapture', onLostCapture);
 
-  return () => {
-    canvas.removeEventListener('pointerdown', onPointerDown);
-    canvas.removeEventListener('pointermove', onPointerMove);
-    canvas.removeEventListener('pointerup', onPointerUp);
-    canvas.removeEventListener('pointercancel', onPointerCancel);
-    canvas.removeEventListener('lostpointercapture', onLostCapture);
+  return {
+    detach() {
+      canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('pointermove', onPointerMove);
+      canvas.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('pointercancel', onPointerCancel);
+      canvas.removeEventListener('lostpointercapture', onLostCapture);
+    },
+
+    abort() {
+      if (active === null) return;
+      const pointerId = activeId;
+      active = null;
+      activeId = null;
+      if (pointerId !== null) {
+        try {
+          canvas.releasePointerCapture(pointerId);
+        } catch {
+          // 忽略
+        }
+      }
+      handlers.onCancel();
+    },
   };
 }

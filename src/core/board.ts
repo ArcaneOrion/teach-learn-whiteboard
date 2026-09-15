@@ -8,7 +8,7 @@
  * 不管中间经过了多少次增删改、也不管事件是乱序到达的还是同步来的。
  */
 
-import type { BoardEvent, BoardOp, Choice, EventPayload } from './types';
+import type { BoardEvent, BoardOp, Choice, EventPayload, FeedbackRating } from './types';
 import type { Stroke } from '../ink/strokes';
 
 /** AI 写在板面上的一块内容 */
@@ -19,6 +19,13 @@ export interface BoardBlock {
    */
   region: string | null;
   html: string;
+  /**
+   * 写出这一块的**事件 id**。
+   *
+   * 为什么块要记住它是哪条事件写出来的：反馈要指向**事件**而不是位置 ——
+   * 位置会随改写变化，事件 id 不会。
+   */
+  sourceEventId: string;
 }
 
 /** 折叠出来的板面状态 */
@@ -33,6 +40,13 @@ export interface BoardState {
   choices: Choice[] | null;
   /** 拍过的截图（只有引用，图片本体在附件表里） */
   snapshots: EventPayload<'board.snapshot'>[];
+  /**
+   * 反馈：被评价的 ai.write 事件 id → 表态。
+   *
+   * 同一个目标再次表态会**覆盖**（用户改主意了）。这也让整块板的状态
+   * 仍然是事件序列的纯函数 —— 重放日志得到的结果永远一样。
+   */
+  feedback: Record<string, FeedbackRating>;
 }
 
 /**
@@ -58,6 +72,7 @@ export function composeBoard(boardId: string, events: readonly BoardEvent[]): Bo
     strokes: [],
     choices: null,
     snapshots: [],
+    feedback: {},
   };
 
   const ordered = events
@@ -77,7 +92,7 @@ function applyEvent(state: BoardState, e: BoardEvent): void {
       return;
 
     case 'ai.write':
-      applyWrite(state, e.payload);
+      applyWrite(state, e.payload, e.id);
       return;
 
     case 'ai.ask':
@@ -105,6 +120,11 @@ function applyEvent(state: BoardState, e: BoardEvent): void {
       state.snapshots.push(e.payload);
       return;
 
+    case 'feedback':
+      // 同一个目标再次表态就覆盖 —— 用户改主意是正常的
+      state.feedback[e.payload.targetEventId] = e.payload.rating;
+      return;
+
     case 'user.say':
       // 说话不改变板面。将来它会影响喂给模型的上文，但不影响画面
       return;
@@ -123,10 +143,10 @@ function applyEvent(state: BoardState, e: BoardEvent): void {
 }
 
 /** 应用一次 AI 写板操作 */
-function applyWrite(state: BoardState, op: BoardOp): void {
+function applyWrite(state: BoardState, op: BoardOp, sourceEventId: string): void {
   switch (op.op) {
     case 'append':
-      state.blocks.push({ region: op.region ?? null, html: op.html });
+      state.blocks.push({ region: op.region ?? null, html: op.html, sourceEventId });
       return;
 
     case 'set': {
@@ -134,9 +154,11 @@ function applyWrite(state: BoardState, op: BoardOp): void {
       if (index === -1) {
         // 要替换的区域不存在 → 退化成追加。
         // 这样 AI 记错区域名时不会丢内容，只是位置不理想
-        state.blocks.push({ region: op.region, html: op.html });
+        state.blocks.push({ region: op.region, html: op.html, sourceEventId });
       } else {
-        state.blocks[index] = { region: op.region, html: op.html };
+        // ⚠️ 注意 sourceEventId 要换成**新的**那条事件：
+        //    块现在的内容是这次 set 写的，反馈该指向这次
+        state.blocks[index] = { region: op.region, html: op.html, sourceEventId };
       }
       return;
     }

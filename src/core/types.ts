@@ -30,8 +30,18 @@ export type EventKind =
   | 'ink.clear'
   // 视觉回流：把板面拍成图发给模型（技术文档 §12）
   | 'board.snapshot'
+  // 反馈：用户对 AI 某次输出的表态（技术文档 §11）
+  | 'feedback'
   // 🔲 预留：记忆（v1 不产生，但解析器认识它，见技术文档 §10.1）
   | 'memory.set';
+
+/**
+ * 用户对 AI 一次输出的表态。
+ *
+ * 产品文档的取舍：**一个手势就能给**，不要弹窗、不要填表 ——
+ * 所以只有三档，没有打分、没有文本框。
+ */
+export type FeedbackRating = 'useful' | 'useless' | 'wrong';
 
 /** 所有事件共有的「信封」 */
 export interface EventEnvelope {
@@ -103,6 +113,16 @@ export type BoardEvent = EventEnvelope &
           /** AI 给这张图写的一句话描述，M4 才填 */
           caption: string | null;
         };
+      }
+    /**
+     * 用户对 AI 某次输出的表态。
+     *
+     * `targetEventId` 指向**被评价的那条 ai.write 事件**，不是板面块的位置 ——
+     * 位置会随改写变化，事件 id 不会。
+     */
+    | {
+        kind: 'feedback';
+        payload: { targetEventId: string; rating: FeedbackRating };
       }
     | { kind: 'memory.set'; payload: unknown }
   );

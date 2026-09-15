@@ -11,8 +11,13 @@ import { describe, expect, it } from 'vitest';
 import type { BoardBlock } from '../core/board';
 import { blockKey, planRender } from './renderPlan';
 
-const named = (region: string, html: string): BoardBlock => ({ region, html });
-const unnamed = (html: string): BoardBlock => ({ region: null, html });
+/** 渲染计划不关心 sourceEventId，这里给个占位值即可 */
+const named = (region: string, html: string): BoardBlock => ({
+  region,
+  html,
+  sourceEventId: `evt-${region}`,
+});
+const unnamed = (html: string): BoardBlock => ({ region: null, html, sourceEventId: `evt-${html}` });
 
 /** 用一组块模拟"内容层现在的内容" */
 function currentOf(blocks: readonly BoardBlock[]): Map<string, string> {
