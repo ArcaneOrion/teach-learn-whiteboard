@@ -15,6 +15,7 @@
 import type { BoardEvent } from '../core/types';
 import type { SessionRecord } from '../core/session';
 import type { AttachmentRecord, BoardRecord, Store } from './types';
+import { compareGlobalEvents } from '../core/sync';
 
 const DB_NAME = 'teach-learn-whiteboard';
 /**
@@ -143,6 +144,25 @@ export class IndexedDbStore implements Store {
     const rows = await req(index.getAll(range) as IDBRequest<BoardEvent[]>);
     await txDone(tx);
     return rows.sort((a, b) => a.seq - b.seq);
+  }
+
+  async allEvents(): Promise<BoardEvent[]> {
+    const tx = this.need().transaction(STORE_EVENTS, 'readonly');
+    const rows = await req(tx.objectStore(STORE_EVENTS).getAll() as IDBRequest<BoardEvent[]>);
+    await txDone(tx);
+    return rows.sort(compareGlobalEvents);
+  }
+
+  async markSynced(ids: readonly string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const tx = this.need().transaction(STORE_EVENTS, 'readwrite');
+    const os = tx.objectStore(STORE_EVENTS);
+    // 一个事务里做完读改写，避免中间被别的写插进来
+    for (const id of ids) {
+      const event = await req(os.get(id) as IDBRequest<BoardEvent | undefined>);
+      if (event !== undefined) os.put({ ...event, synced: 1 });
+    }
+    await txDone(tx);
   }
 
   async countUnsynced(): Promise<number> {

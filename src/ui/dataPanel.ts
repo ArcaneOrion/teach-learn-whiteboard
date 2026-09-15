@@ -29,6 +29,11 @@ export interface DataStats {
   credentials: number;
 }
 
+export interface SyncConfig {
+  baseUrl: string;
+  token: string;
+}
+
 export interface DataPanelCallbacks {
   stats: () => Promise<DataStats>;
   /** 导出（由调用方触发下载） */
@@ -39,6 +44,12 @@ export interface DataPanelCallbacks {
   onImport: (backup: BackupFile) => Promise<string>;
   /** 清空全部数据 */
   onReset: () => Promise<void>;
+
+  // ── 同步 ────────────────────────────────────────────────────
+  loadSyncConfig: () => Promise<SyncConfig>;
+  saveSyncConfig: (config: SyncConfig) => Promise<void>;
+  /** 跑一次同步，返回给用户看的结果说明 */
+  onSync: (config: SyncConfig) => Promise<string>;
 }
 
 function must<T extends Element>(root: ParentNode, selector: string): T {
@@ -112,9 +123,55 @@ export class DataPanel {
         await this.callbacks.onReset();
       });
     });
+
+    // ── 同步 ──────────────────────────────────────────────────
+    this.syncUrl = must<HTMLInputElement>(this.dialog, '#sync-url');
+    this.syncToken = must<HTMLInputElement>(this.dialog, '#sync-token');
+    this.syncStatus = must<HTMLElement>(this.dialog, '#sync-status');
+    this.syncNowBtn = must<HTMLButtonElement>(this.dialog, '#sync-now');
+
+    must<HTMLButtonElement>(this.dialog, '#sync-save').addEventListener('click', () => {
+      const saveBtn = must<HTMLButtonElement>(this.dialog, '#sync-save');
+      void this.run(saveBtn, async () => {
+        await this.callbacks.saveSyncConfig(this.readSyncForm());
+        this.setSyncStatus('设置已保存。');
+      });
+    });
+
+    this.syncNowBtn.addEventListener('click', () => {
+      const config = this.readSyncForm();
+      if (config.baseUrl.trim() === '') {
+        this.setSyncStatus('先填服务端地址。');
+        return;
+      }
+      void this.run(this.syncNowBtn, async () => {
+        this.setSyncStatus('正在同步…');
+        // 顺手把设置存下来 —— 用户点了同步却忘了保存是很常见的事
+        await this.callbacks.saveSyncConfig(config);
+        this.setSyncStatus(await this.callbacks.onSync(config));
+      });
+    });
+  }
+
+  private readonly syncUrl: HTMLInputElement;
+  private readonly syncToken: HTMLInputElement;
+  private readonly syncStatus: HTMLElement;
+  private readonly syncNowBtn: HTMLButtonElement;
+
+  private readSyncForm(): SyncConfig {
+    return { baseUrl: this.syncUrl.value.trim(), token: this.syncToken.value };
+  }
+
+  private setSyncStatus(text: string): void {
+    this.syncStatus.textContent = text;
   }
 
   async open(): Promise<void> {
+    const config = await this.callbacks.loadSyncConfig();
+    this.syncUrl.value = config.baseUrl;
+    this.syncToken.value = config.token;
+    this.setSyncStatus(config.baseUrl === '' ? '还没配同步 —— 不配也不影响其他功能。' : '');
+
     await this.refreshStats();
     this.disarm();
     this.dialog.showModal();

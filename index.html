@@ -195,6 +195,30 @@
         备份文件里<strong>不含 API Key</strong> —— Key 只留在这台设备上，恢复后要重新填一次。
       </p>
 
+      <!-- 同步：在同一台自己的机器上跑 pnpm sync-server，多台设备就能对上 -->
+      <div class="data__sync">
+        <h3>同步</h3>
+        <p class="settings__foot">
+          在一台你自己的机器上跑 <code>pnpm sync-server</code>，把地址填到这里，
+          多台设备就能互相对上。同步是<strong>合并</strong> —— 两边写的东西都会留着。
+        </p>
+        <div class="settings__form">
+          <label class="field">
+            <span class="field__label">服务端地址</span>
+            <input class="field__input" id="sync-url" type="url" placeholder="http://192.168.1.5:8787" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span class="field__label">口令（服务端没设就留空）</span>
+            <input class="field__input" id="sync-token" type="password" placeholder="只能用英文字母、数字和常见符号" autocomplete="off" />
+          </label>
+          <div class="confirm__actions">
+            <button class="btn btn--primary" id="sync-now" type="button">立即同步</button>
+            <button class="btn" id="sync-save" type="button">保存设置</button>
+          </div>
+          <p class="settings__foot" id="sync-status"></p>
+        </div>
+      </div>
+
       <div class="settings__form data__danger">
         <button class="btn btn--danger" id="data-reset" type="button">清空全部数据</button>
         <p class="settings__foot">不可撤销。清空前请先导出备份。</p>

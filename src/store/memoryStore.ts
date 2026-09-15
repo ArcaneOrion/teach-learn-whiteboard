@@ -8,6 +8,7 @@
 import type { BoardEvent } from '../core/types';
 import type { SessionRecord } from '../core/session';
 import type { AttachmentRecord, BoardRecord, Store } from './types';
+import { compareGlobalEvents } from '../core/sync';
 
 export class MemoryStore implements Store {
   private readonly events = new Map<string, BoardEvent>();
@@ -31,6 +32,17 @@ export class MemoryStore implements Store {
     return [...this.events.values()]
       .filter((e) => e.boardId === boardId)
       .sort((a, b) => a.seq - b.seq);
+  }
+
+  async allEvents(): Promise<BoardEvent[]> {
+    return [...this.events.values()].sort(compareGlobalEvents);
+  }
+
+  async markSynced(ids: readonly string[]): Promise<void> {
+    for (const id of ids) {
+      const event = this.events.get(id);
+      if (event !== undefined) this.events.set(id, { ...event, synced: 1 });
+    }
   }
 
   async countUnsynced(): Promise<number> {

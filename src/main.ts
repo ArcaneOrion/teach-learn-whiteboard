@@ -44,6 +44,9 @@ import { rasterizeBoard } from './ui/rasterize';
 import { buildIndex, dedupeByRegion, type SearchDoc } from './core/search';
 import { backupFileName, countCredentials, parseBackup } from './core/backup';
 import { backupToBlob, downloadBlob, exportBackup, importBackup } from './store/transfer';
+import { reconcileBoards, pickStartupBoard, countContentEvents } from './store/boards';
+import { HttpTransport } from './sync/httpTransport';
+import { describeCursor, runSync } from './sync/syncEngine';
 import { IndexedDbStore } from './store/indexedDbStore';
 import { MemoryStore } from './store/memoryStore';
 import { makeId } from './store/types';
@@ -99,6 +102,12 @@ let persistent = false;
 let session: SessionRecord | null = null;
 let boardRecord: BoardRecord | null = null;
 let saveState: 'ok' | 'pending' | 'failed' = 'ok';
+
+/** 这台设备的 id。同步靠它定序，所以必须持久化 */
+let deviceId = '';
+
+/** 同步设置存在 meta 里 */
+const SYNC_CONFIG_KEY = 'syncConfig';
 
 /** 模型渠道 */
 const DEMO_CHANNEL_ID = 'demo';
@@ -907,6 +916,33 @@ function makeDataPanel(theStore: Store): DataPanel {
       await theStore.clear();
       location.reload();
     },
+
+    // ── 同步 ──────────────────────────────────────────────────
+    loadSyncConfig: async () => {
+      const saved = await theStore.getMeta<{ baseUrl: string; token: string }>(SYNC_CONFIG_KEY);
+      return saved ?? { baseUrl: '', token: '' };
+    },
+
+    saveSyncConfig: async (config) => {
+      await theStore.setMeta(SYNC_CONFIG_KEY, config);
+    },
+
+    onSync: async (config) => {
+      if (deviceId === '') return '这台设备还没有 id，稍后再试。';
+
+      const transport = new HttpTransport({
+        baseUrl: config.baseUrl,
+        ...(config.token === '' ? {} : { token: config.token }),
+      });
+      const result = await runSync({ store: theStore, transport, deviceId });
+
+      if (result.merged > 0) {
+        // 拉到了本机没有的东西 → 内存里的日志已经不完整了，重新载入
+        window.setTimeout(() => location.reload(), 1200);
+        return `同步完成：推上去 ${result.pushed} 条，拉回来 ${result.merged} 条新的。正在重新载入…`;
+      }
+      return `同步完成：推上去 ${result.pushed} 条，没有新的要拉回来。${describeCursor(result.cursor)}`;
+    },
   });
 }
 
@@ -1003,10 +1039,12 @@ async function boot(): Promise<void> {
   const s = store;
   if (s === null) throw new Error('存储初始化失败');
 
-  let deviceId = await s.getMeta<string>('deviceId');
-  if (deviceId === null) {
+  const stored = await s.getMeta<string>('deviceId');
+  if (stored === null) {
     deviceId = makeId('dev');
     await s.setMeta('deviceId', deviceId);
+  } else {
+    deviceId = stored;
   }
 
   const decision = resolveSession(Date.now(), await s.lastSession(), {
@@ -1018,8 +1056,20 @@ async function boot(): Promise<void> {
   await s.putSession(decision.session);
   session = decision.session;
 
+  // 先把「有哪些板」跟事件日志对一遍 —— 同步或导入拉回来的板，
+  // 本机的 boards 表里可能还没有记录，那样它在界面上永远不出现
+  await reconcileBoards(s);
+
+  // ★ 选板的规则：优先选**有实质内容**的板（见 store/boards.ts 的说明）。
+  //   不然同步把数据拉回来之后，用户看到的会是一块刚建的空板 ——
+  //   因为新建的板立刻有一条 board.create，updatedAt 永远是最新的。
   const boards = await s.listBoards();
-  let record = boards[0] ?? null;
+  const counts = new Map<string, number>();
+  for (const candidate of boards) {
+    counts.set(candidate.id, countContentEvents(await s.loadEvents(candidate.id)));
+  }
+
+  let record = pickStartupBoard(boards, (id) => counts.get(id) ?? 0);
   if (record === null) {
     const now = Date.now();
     record = { id: makeId('b'), userId: 'local', title: '未命名', createdAt: now, updatedAt: now, archived: 0 };

@@ -65,6 +65,17 @@ export interface Store {
   /** 读出某块板的全部事件，按 seq 升序 */
   loadEvents(boardId: string): Promise<BoardEvent[]>;
 
+  /** 读出**所有**板的事件，按 (createdAt, deviceId) 全局排序 —— 同步和备份都要用 */
+  allEvents(): Promise<BoardEvent[]>;
+
+  /**
+   * 把这些事件标记为「已同步到远端」。
+   *
+   * ⚠️ 这是事件日志**唯一**允许被就地修改的字段。事件内容本身永远不可变 ——
+   * 那正是同步不需要处理冲突的原因。
+   */
+  markSynced(ids: readonly string[]): Promise<void>;
+
   /** 有几条事件还没同步（M6 用） */
   countUnsynced(): Promise<number>;
 

@@ -18,6 +18,7 @@ import type { BackupAttachment, BackupFile } from '../core/backup';
 
 import { base64ToBlob, blobToBase64 } from '../base64';
 import { makeBackup } from '../core/backup';
+import { reconcileBoards } from './boards';
 
 export interface ImportSummary {
   boards: number;
@@ -91,6 +92,9 @@ export async function importBackup(store: Store, backup: BackupFile): Promise<Im
     metaCount += 1;
   }
 
+  // 备份里的板记录可能缺（比如别人手改过文件），从事件里补一遍
+  await reconcileBoards(store);
+
   return {
     boards: boards.length,
     sessions: sessions.length,
@@ -99,7 +103,6 @@ export async function importBackup(store: Store, backup: BackupFile): Promise<Im
     meta: metaCount,
   };
 }
-
 /** 把备份对象变成可下载的文件 */
 export function backupToBlob(backup: BackupFile): Blob {
   return new Blob([JSON.stringify(backup)], { type: 'application/json' });

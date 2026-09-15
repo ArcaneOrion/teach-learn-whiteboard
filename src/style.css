@@ -681,6 +681,21 @@ body {
   border-top: 1px solid var(--line);
 }
 
+.data__sync {
+  margin-top: 20px;
+  padding: 0 16px 4px;
+  border-top: 1px solid var(--line);
+}
+
+.data__sync h3 {
+  margin: 14px 0 6px;
+  font-size: 14px;
+}
+
+.data__sync .settings__foot {
+  margin: 0 0 10px;
+}
+
 /* 面板内的两步确认（刻意不用 window.confirm，见 ui/dataPanel.ts 的说明） */
 .confirm {
   padding: 0 16px 14px;
