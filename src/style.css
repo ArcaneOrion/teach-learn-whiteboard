@@ -39,7 +39,10 @@ body {
 
 body {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  /* 状态条 / 板面 / 选项条 / 输入条 / 工具栏
+     选项条平时是 hidden（display:none），它会自动从栅格里让出位置，
+     所以多留一行不会有空白 */
+  grid-template-rows: auto 1fr auto auto auto;
   height: 100dvh; /* dvh 能正确处理手机地址栏收起/展开 */
 }
 
@@ -310,9 +313,10 @@ body {
 
 .hud {
   position: fixed;
-  left: 10px;
-  bottom: 10px;
-  max-width: calc(100vw - 20px);
+  /* 放右上角：底部被输入条和工具栏占满了，读数放下面会盖住它们 */
+  top: calc(var(--statusbar-h) + 8px);
+  right: 10px;
+  max-width: min(560px, calc(100vw - 20px));
   padding: 6px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -321,6 +325,238 @@ body {
   font-family: "SF Mono", Menlo, Consolas, monospace;
   font-size: 11px;
   line-height: 1.5;
+  text-align: right;
   pointer-events: none;
   z-index: 10;
+}
+
+/* ── 选项条 ─────────────────────────────────────────────────── */
+
+.choicebar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #f5f7ff;
+  border-top: 1px solid #dbeafe;
+}
+
+.choicebar[hidden] {
+  display: none;
+}
+
+/* ── 输入条 ─────────────────────────────────────────────────── */
+
+.inputbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+
+.inputbar__text {
+  flex: 1;
+  min-height: 38px;
+  max-height: 140px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: none;
+  /* 输入框里要能正常选中文字，所以把全局的禁止选中恢复回来 */
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.inputbar__text:focus {
+  outline: 2px solid #bfdbfe;
+  outline-offset: -1px;
+}
+
+.inputbar__text:disabled {
+  background: #f6f5f2;
+  color: var(--muted);
+}
+
+.btn--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn--primary:disabled {
+  border-color: var(--line);
+  background: #e8e6e0;
+  color: #9ca3af;
+  font-weight: 400;
+  cursor: not-allowed;
+}
+
+.btn--danger {
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+/* ── 下拉选择 ───────────────────────────────────────────────── */
+
+.select {
+  min-height: 36px;
+  max-width: 220px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+/* ── 渠道设置弹窗 ───────────────────────────────────────────── */
+
+.settings {
+  width: min(560px, calc(100vw - 24px));
+  max-height: calc(100dvh - 40px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--ink);
+  overflow: auto;
+}
+
+.settings::backdrop {
+  background: rgba(31, 35, 40, 0.35);
+}
+
+.settings__head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.settings__head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.settings__note {
+  margin: 14px 16px;
+  padding: 10px 12px;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  background: #f0fdf4;
+  color: #14532d;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.settings__sub {
+  margin: 18px 16px 8px;
+  font-size: 14px;
+}
+
+.settings__foot {
+  margin: 14px 16px 18px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.settings__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px;
+}
+
+.settings__form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field__label {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.field__input {
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* 已配置渠道的条目 */
+.channel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.channel-row__main {
+  min-width: 0;
+}
+
+.channel-row__name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.channel-row__meta {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 20px;
+  background: #fff7ed;
+  color: #b45309;
+  font-size: 11px;
+  font-weight: 400;
+  vertical-align: middle;
+}
+
+.empty {
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
 }

@@ -14,7 +14,7 @@
     <!-- 状态条：一行，永远在 -->
     <header class="statusbar">
       <span class="statusbar__title">共写白板</span>
-      <span class="statusbar__meta" id="status">M1 · 事件日志</span>
+      <span class="statusbar__meta" id="status">M2 · 正在启动…</span>
     </header>
 
     <!--
@@ -29,13 +29,25 @@
     <main class="stage" id="stage">
       <div class="scroller" id="scroller">
         <div class="board" id="board">
-          <!-- ② 内容层 -->
           <div class="layer layer--content" id="content"></div>
-          <!-- ③ 墨迹层 -->
           <canvas id="ink"></canvas>
         </div>
       </div>
     </main>
+
+    <!-- 选项条：AI 出了选项才出现。点选会作为一条真实的用户消息回到对话里 -->
+    <div class="choicebar" id="choicebar" hidden></div>
+
+    <!-- 输入条：手写适合短标注，长段落还是打字快（产品文档 §4 主张一） -->
+    <div class="inputbar">
+      <textarea
+        id="say"
+        class="inputbar__text"
+        rows="1"
+        placeholder="说点什么…（AI 会把回答写到板上）"
+      ></textarea>
+      <button class="btn btn--primary" id="send" type="button">发送</button>
+    </div>
 
     <!-- 工具栏 -->
     <footer class="toolbar">
@@ -64,16 +76,55 @@
         <button class="btn" id="clear" type="button">🗑 清空</button>
       </div>
 
-      <!-- ⚠️ 临时：M1 用来验证「AI 写板面」这条链路，M2 接上真模型后删掉 -->
-      <div class="toolbar__group toolbar__group--demo" role="group" aria-label="假 AI（临时）">
-        <button class="btn btn--demo" id="demo-append" type="button">🤖 追加</button>
-        <button class="btn btn--demo" id="demo-rewrite" type="button">✏️ 改写</button>
-        <button class="btn btn--demo" id="demo-remove" type="button">🧹 擦掉</button>
+      <div class="toolbar__group" role="group" aria-label="模型渠道">
+        <select class="select" id="channel" aria-label="当前渠道与模型"></select>
+        <button class="btn" id="open-settings" type="button">⚙️ 渠道</button>
       </div>
     </footer>
 
     <!-- 调试读数：验证输入质量与事件日志。M4 之后会去掉 -->
     <div class="hud" id="hud" aria-live="off"></div>
+
+    <!-- 渠道设置 -->
+    <dialog class="settings" id="settings">
+      <div class="settings__head">
+        <h2>模型渠道</h2>
+        <button class="btn" id="close-settings" type="button">关闭</button>
+      </div>
+
+      <p class="settings__note">
+        <strong>Key 只存在这台设备上，不会上传。</strong>
+        这个 App 里没有上传 Key 的代码 —— 请求直接从你的设备发给模型厂商。
+      </p>
+
+      <div class="settings__list" id="channel-list"></div>
+
+      <h3 class="settings__sub">添加一个渠道</h3>
+      <div class="settings__form">
+        <label class="field">
+          <span class="field__label">名称</span>
+          <input class="field__input" id="f-name" type="text" placeholder="例如：DeepSeek 官方" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span class="field__label">Base URL</span>
+          <input class="field__input" id="f-url" type="url" placeholder="https://api.deepseek.com/v1" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span class="field__label">API Key</span>
+          <input class="field__input" id="f-key" type="password" placeholder="sk-…" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span class="field__label">模型 ID</span>
+          <input class="field__input" id="f-models" type="text" placeholder="用逗号分隔，例如：deepseek-chat, deepseek-reasoner" autocomplete="off" />
+        </label>
+        <button class="btn btn--primary" id="f-add" type="button">保存这个渠道</button>
+      </div>
+
+      <p class="settings__foot">
+        任何 OpenAI 兼容的端点都能填。本机服务（如 Ollama）也可以，
+        但需要安卓端放行明文 HTTP（见 <code>docs/技术开发文档.md</code> §7.4）。
+      </p>
+    </dialog>
 
     <script type="module" src="/src/main.ts"></script>
   </body>
