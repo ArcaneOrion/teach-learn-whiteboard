@@ -12,6 +12,19 @@
   --accent: #2563eb;
   --statusbar-h: 40px;
 
+  /**
+   * ★ 安全区（刘海 / 状态栏 / 手势条）必须用这两条，不能直接写 env()。
+   *
+   * 原因：Capacitor 8 会把真实数值注到 <html> 的 --safe-area-inset-* 上，
+   * 因为老版本的 Android WebView 里 `env(safe-area-inset-*)` **拿不到值**
+   * （Chromium bug 40699457，WebView 140 才修）—— 那样 env() 永远是 0，
+   * 内容就会顶到状态栏底下。实测真机上顶部那行字被切掉一半，就是这个。
+   *
+   * 顺序不能反：先问 Capacitor 注入的变量，没有（普通浏览器）再用 env()。
+   */
+  --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+
   color-scheme: light;
   font-family: -apple-system, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", system-ui, sans-serif;
 }
@@ -69,9 +82,13 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: var(--statusbar-h);
+  /* ★ 高度必须把安全区**算进去**。原来写死 40px、又加了 padding-top，
+     而 box-sizing 是 border-box —— 手机上安全区有 30~40px，
+     内容区就被挤得只剩几个像素，文字直接被切掉一半。
+     用 calc() 让高度跟着安全区长，内容区才永远是完整的 40px。 */
+  height: calc(var(--statusbar-h) + var(--safe-top));
   padding: 0 12px;
-  padding-top: env(safe-area-inset-top);
+  padding-top: var(--safe-top);
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   font-size: 13px;
@@ -90,11 +107,19 @@ body {
   /* flex:1 + min-width:0 是让省略号生效的关键组合 */
   flex: 1;
   min-width: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   white-space: nowrap;
-  text-overflow: ellipsis;
+  /* 错误信息可能很长（「这家渠道连不上，地址是不是写错了」后面还有半句）。
+     原来用 text-overflow: ellipsis 直接截掉 —— 但用户就靠这条信息排查渠道配置，
+     截掉等于没说。改成能横向滑，一行的高度不变（板面不会跳），内容却看得全。 */
+  scrollbar-width: none;
+
   color: var(--muted);
   font-size: 12px;
+}
+.statusbar__meta::-webkit-scrollbar {
+  display: none;
 }
 
 /* ── 板面 ─────────────────────────────────────────────────────
@@ -318,7 +343,7 @@ body {
   align-items: center;
   gap: 6px 14px;
   padding: 8px 12px;
-  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  padding-bottom: calc(8px + var(--safe-bottom));
   background: var(--panel);
   border-top: 1px solid var(--line);
 }
@@ -396,7 +421,7 @@ body {
 .hud {
   position: fixed;
   /* 放右上角：底部被输入条和工具栏占满了，读数放下面会盖住它们 */
-  top: calc(var(--statusbar-h) + 8px);
+  top: calc(var(--statusbar-h) + var(--safe-top) + 8px);
   right: 10px;
   max-width: min(560px, calc(100vw - 20px));
   padding: 6px 10px;
@@ -721,7 +746,7 @@ body {
   .toolbar {
     gap: 5px 8px;
     padding: 6px 8px;
-    padding-bottom: calc(6px + env(safe-area-inset-bottom));
+    padding-bottom: calc(6px + var(--safe-bottom));
   }
 
   .toolbar__group {
