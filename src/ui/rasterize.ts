@@ -72,8 +72,14 @@ export interface RasterizeOptions {
 
 const DEFAULT_MAX_PIXELS = 1_900_000;
 
-/** 把 canvas 换成它自己的位图（否则 foreignObject 里是一片空白） */
-function replaceCanvasWithImage(original: HTMLElement, clone: HTMLElement): void {
+/**
+ * 把 canvas 换成它自己的位图（否则 foreignObject 里是一片空白）。
+ *
+ * 导出出来是为了让测试能盯住它 —— 这里踩过一个**隐藏了 8 轮**的 bug：
+ * 换出来的 `<img>` 没带 id，于 `#ink { z-index: 2 }` 失效、掉到内容层后面，
+ * 笔迹被块的不透明背景盖住。见下面 `img.id` 那段。
+ */
+export function replaceCanvasWithImage(original: HTMLElement, clone: HTMLElement): void {
   const sources = original.querySelectorAll('canvas');
   const targets = clone.querySelectorAll('canvas');
   const dpr = window.devicePixelRatio || 1;
