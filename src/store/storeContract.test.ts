@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { BoardEvent } from '../core/types';
 import type { SessionRecord } from '../core/session';
-import type { AttachmentRecord, BoardRecord, Store } from './types';
+import type { AttachmentRecord, BoardRecord, ChunkRecord, DocRecord, Store } from './types';
 import { MemoryStore } from './memoryStore';
 import { IndexedDbStore } from './indexedDbStore';
 
@@ -69,8 +69,30 @@ function attachment(over: Partial<AttachmentRecord> & { id: string }): Attachmen
   };
 }
 
-/** 一套契约，两个实现都跑 */
-function storeContract(name: string, make: () => Promise<Store>): void {
+function doc(over: Partial<DocRecord> & { id: string }): DocRecord {
+  return {
+    userId: 'local',
+    title: '示例资料',
+    fileName: 'sample.txt',
+    mime: 'text/plain',
+    chars: 100,
+    chunkCount: 1,
+    importedAt: 1000,
+    ...over,
+  };
+}
+
+function chunk(over: Partial<ChunkRecord> & { id: string; docId: string; ord: number }): ChunkRecord {
+  return {
+    heading: null,
+    text: `第 ${over.ord} 块`,
+    start: 0,
+    end: 10,
+    ...over,
+  };
+}
+
+/** 一套契约，两个实现都跑 */function storeContract(name: string, make: () => Promise<Store>): void {
   describe(name, () => {
     let store: Store;
 
@@ -266,6 +288,75 @@ function storeContract(name: string, make: () => Promise<Store>): void {
         new Blob(['x']),
       );
       expect((await store.getAttachment('a1'))?.record.caption).toBe('用户在判别式上画了个圈');
+    });
+
+    // ── 资料（RAG）────────────────────────────────────────────
+
+    it('★ 资料与它的块能存能取', async () => {
+      await store.putDoc(doc({ id: 'd1', title: '代数课本', chunkCount: 2 }));
+      await store.putChunks('d1', [
+        chunk({ id: 'c1', docId: 'd1', ord: 0, text: '第一块' }),
+        chunk({ id: 'c2', docId: 'd1', ord: 1, text: '第二块' }),
+      ]);
+
+      expect((await store.getDoc('d1'))?.title).toBe('代数课本');
+      expect(await store.countChunks()).toBe(2);
+      expect((await store.allChunks()).map((c) => c.text)).toEqual(['第一块', '第二块']);
+    });
+
+    it('资料列表按导入时间倒序', async () => {
+      await store.putDoc(doc({ id: 'old', importedAt: 1000 }));
+      await store.putDoc(doc({ id: 'new', importedAt: 3000 }));
+      expect((await store.listDocs()).map((d) => d.id)).toEqual(['new', 'old']);
+    });
+
+    it('读不存在的资料返回 null', async () => {
+      expect(await store.getDoc('nope')).toBeNull();
+    });
+
+    it('★ 删除资料会**连它的块一起删** —— 否则留下永远检索不到也删不掉的垃圾', async () => {
+      await store.putDoc(doc({ id: 'd1' }));
+      await store.putDoc(doc({ id: 'd2' }));
+      await store.putChunks('d1', [
+        chunk({ id: 'c1', docId: 'd1', ord: 0 }),
+        chunk({ id: 'c2', docId: 'd1', ord: 1 }),
+      ]);
+      await store.putChunks('d2', [chunk({ id: 'c3', docId: 'd2', ord: 0 })]);
+
+      await store.deleteDoc('d1');
+
+      expect(await store.getDoc('d1')).toBeNull();
+      expect(await store.countChunks()).toBe(1);
+      expect((await store.allChunks())[0]?.docId).toBe('d2');
+    });
+
+    it('★ 重新导入会覆盖原来的块，不会新旧混在一起', async () => {
+      await store.putDoc(doc({ id: 'd1' }));
+      await store.putChunks('d1', [
+        chunk({ id: 'old-1', docId: 'd1', ord: 0 }),
+        chunk({ id: 'old-2', docId: 'd1', ord: 1 }),
+      ]);
+      await store.putChunks('d1', [chunk({ id: 'new-1', docId: 'd1', ord: 0 })]);
+
+      expect(await store.countChunks()).toBe(1);
+      expect((await store.allChunks())[0]?.id).toBe('new-1');
+    });
+
+    it('★ 覆盖只影响这一份文档，别的文档的块不动', async () => {
+      await store.putChunks('d1', [chunk({ id: 'c1', docId: 'd1', ord: 0 })]);
+      await store.putChunks('d2', [chunk({ id: 'c2', docId: 'd2', ord: 0 })]);
+      await store.putChunks('d1', [chunk({ id: 'c1b', docId: 'd1', ord: 0 })]);
+
+      expect(await store.countChunks()).toBe(2);
+      expect((await store.allChunks()).map((c) => c.id).sort()).toEqual(['c1b', 'c2']);
+    });
+
+    it('clear 也清资料', async () => {
+      await store.putDoc(doc({ id: 'd1' }));
+      await store.putChunks('d1', [chunk({ id: 'c1', docId: 'd1', ord: 0 })]);
+      await store.clear();
+      expect(await store.listDocs()).toHaveLength(0);
+      expect(await store.countChunks()).toBe(0);
     });
 
     // ── clear ─────────────────────────────────────────────────

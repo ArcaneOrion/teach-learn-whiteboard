@@ -38,10 +38,12 @@ import { ContentLayer } from './ui/contentLayer';
 import { SettingsPanel } from './ui/settingsPanel';
 import { HistoryPanel } from './ui/historyPanel';
 import { DataPanel } from './ui/dataPanel';
+import { MaterialsPanel } from './ui/materialsPanel';
 import { htmlToText } from './ui/htmlText';
 import { blobToBase64, blobToDataUrl } from './base64';
 import { rasterizeBoard } from './ui/rasterize';
 import { buildIndex, dedupeByRegion, type SearchDoc } from './core/search';
+import { chunkText, searchMaterials, type MaterialCandidate } from './core/materials';
 import { backupFileName, countCredentials, parseBackup } from './core/backup';
 import { backupToBlob, downloadBlob, exportBackup, importBackup } from './store/transfer';
 import { reconcileBoards, pickStartupBoard, countContentEvents } from './store/boards';
@@ -55,7 +57,7 @@ import { StoreCredentialStore } from './ai/credentials';
 import { allChannels, buildRegistry, loadChannels, saveChannels, type ChannelRegistry } from './ai/channels';
 import { runTurn, type ToolOutcome } from './ai/agent';
 import { explainError } from './ai/errors';
-import { boardTools, TOOL_ASK_USER, TOOL_BOARD_WRITE } from './ai/tools';
+import { boardTools, TOOL_ASK_USER, TOOL_BOARD_WRITE, TOOL_SEARCH_MATERIALS } from './ai/tools';
 import { describeUserTurn, systemPrompt } from './ai/prompt';
 import type { DemoChannel } from './ai/demoChannel';
 
@@ -86,6 +88,7 @@ const channelSelect = must<HTMLSelectElement>('#channel');
 const openSettingsBtn = must<HTMLButtonElement>('#open-settings');
 const openHistoryBtn = must<HTMLButtonElement>('#open-history');
 const openDataBtn = must<HTMLButtonElement>('#open-data');
+const openMaterialsBtn = must<HTMLButtonElement>('#open-materials');
 
 // ── 状态 ──────────────────────────────────────────────────────
 
@@ -442,9 +445,17 @@ function asString(v: unknown): string | undefined {
  * 校验失败不抛异常，而是回一条 isError 的结果 —— 模型往往能自己改对，
  * 而抛异常只会让用户看到一句莫名其妙的报错（见 ai/agent.ts 的说明）。
  */
-function executeTool(name: string, args: Record<string, unknown>): ToolOutcome {
+async function executeTool(name: string, args: Record<string, unknown>): Promise<ToolOutcome> {
   const theLog = log;
   if (theLog === null) return { result: '板还没准备好', isError: true };
+
+  if (name === TOOL_SEARCH_MATERIALS) {
+    const query = asString(args['query']);
+    if (query === undefined || query.trim() === '') {
+      return { result: 'query 必填：用一句自然语言说明你要查什么', isError: true };
+    }
+    return searchMaterialsTool(query);
+  }
 
   if (name === TOOL_BOARD_WRITE) {
     const op = asString(args['op']);
@@ -498,6 +509,56 @@ function executeTool(name: string, args: Record<string, unknown>): ToolOutcome {
   return { result: `没有这个工具：${name}`, isError: true };
 }
 
+/**
+ * 在用户上传的资料里检索，把**原文**回给模型。
+ *
+ * 注意返回的是原文 + 出处，不是摘要 —— 模型要能引用原话，
+ * 而且它接下来应该把这段原文**写到板上**（而不是转述一遍）。
+ */
+async function searchMaterialsTool(query: string): Promise<ToolOutcome> {
+  const theStore = store;
+  if (theStore === null) return { result: '存储还没准备好', isError: true };
+
+  const chunks = await theStore.allChunks();
+  if (chunks.length === 0) {
+    return {
+      result: '用户还没有上传任何资料。告诉他去「📚 资料」里导入，或者先用你已有的知识回答。',
+    };
+  }
+
+  const docs = await theStore.listDocs();
+  const titleOf = new Map(docs.map((d) => [d.id, d.title]));
+
+  const candidates: MaterialCandidate[] = chunks.map((c) => ({
+    chunkId: c.id,
+    docId: c.docId,
+    docTitle: titleOf.get(c.docId) ?? '资料',
+    heading: c.heading,
+    text: c.text,
+  }));
+
+  const hits = searchMaterials(candidates, query, 4);
+
+  if (hits.length === 0) {
+    // 明确告诉它"没找到" —— 不然模型很可能开始编
+    return {
+      result: `资料里没有和「${query}」相关的段落。别硬编：直接告诉用户没找到，或者用你已有的知识回答并说明这一点。`,
+    };
+  }
+
+  const body = hits
+    .map((hit, i) => {
+      const where = hit.heading === null ? '' : ` · ${hit.heading}`;
+      return `【${i + 1}】出自《${hit.docTitle}》${where}\n${hit.text}`;
+    })
+    .join('\n\n');
+
+  setStatus(`在资料里找到了 ${hits.length} 段相关内容`);
+  return {
+    result: `找到 ${hits.length} 段相关内容：\n\n${body}\n\n（把要引用的原文用 board_write 写到板上，标明出自哪本书哪一节。）`,
+  };
+}
+
 /** 我们是在安卓 App 里跑，还是在电脑浏览器里？决定报错时提不提 CORS */
 function runtime(): 'browser' | 'app' {
   // Capacitor 注入 window.Capacitor。装上 Capacitor 之后这里自然为真
@@ -539,7 +600,12 @@ async function sendTurn(rawText: string, snapshot: PendingSnapshot | null = null
 
   // ② 系统提示词每轮刷新 —— 区域列表会变，模型要知道现在能 set 哪些区域
   const regions = board.blocks.map((b) => b.region).filter((r): r is string => r !== null);
-  conversation.systemPrompt = systemPrompt({ boardTitle: board.title, regions });
+  const materialCount = store === null ? 0 : (await store.listDocs()).length;
+  conversation.systemPrompt = systemPrompt({
+    boardTitle: board.title,
+    regions,
+    materialCount,
+  });
 
   // ③ 用户消息。有截图时，文字和图片放在**同一条消息**里
   try {
@@ -998,6 +1064,64 @@ openDataBtn.addEventListener('click', () => {
   void dataPanel?.open();
 });
 
+// ── 资料（M7 / RAG）──────────────────────────────────────────
+
+let materialsPanel: MaterialsPanel | null = null;
+
+function makeMaterialsPanel(theStore: Store): MaterialsPanel {
+  return new MaterialsPanel({
+    list: () => theStore.listDocs(),
+
+    import: async (file) => {
+      // 目前只支持纯文本。PDF 要额外引一个解析库（pdf.js），下一轮再说
+      const text = await file.text();
+      if (text.trim() === '') {
+        return `${file.name} 是空的，或者不是纯文本（PDF 还读不了，请先转成 txt/md）。`;
+      }
+
+      const drafts = chunkText(text);
+      if (drafts.length === 0) return '这个文件里没有可用的文字内容。';
+
+      const docId = makeId('doc');
+      const title = file.name.replace(/\.[^.]+$/, '');
+
+      await theStore.putDoc({
+        id: docId,
+        userId: 'local',
+        title,
+        fileName: file.name,
+        mime: file.type === '' ? 'text/plain' : file.type,
+        chars: text.length,
+        chunkCount: drafts.length,
+        importedAt: Date.now(),
+      });
+
+      await theStore.putChunks(
+        docId,
+        drafts.map((draft, i) => ({
+          id: `${docId}-${i}`,
+          docId,
+          ord: i,
+          heading: draft.heading,
+          text: draft.text,
+          start: draft.start,
+          end: draft.end,
+        })),
+      );
+
+      return `已导入《${title}》：${text.length} 字，切成 ${drafts.length} 块。现在问 AI 时它会自己去查。`;
+    },
+
+    remove: async (docId) => {
+      await theStore.deleteDoc(docId);
+    },
+  });
+}
+
+openMaterialsBtn.addEventListener('click', () => {
+  void materialsPanel?.open();
+});
+
 // ── 启动 ──────────────────────────────────────────────────────
 
 async function openStore(): Promise<void> {
@@ -1166,6 +1290,7 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
       locate: locateOnBoard,
     });
     dataPanel = makeDataPanel(theStore);
+    materialsPanel = makeMaterialsPanel(theStore);
   }
 
   // 调试读数：生产构建里默认关掉（它是浮在板面上的，会挡住内容）；

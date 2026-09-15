@@ -19,7 +19,7 @@ import {
   type Provider,
 } from '@earendil-works/pi-ai';
 
-import { TOOL_BOARD_WRITE } from './tools';
+import { TOOL_BOARD_WRITE, TOOL_SEARCH_MATERIALS } from './tools';
 
 /** 把用户输入安全地放进 HTML（演示用；真正的防线是 sanitize.ts） */
 function escapeHtml(text: string): string {
@@ -47,9 +47,16 @@ export function createDemoChannel(): DemoChannel {
     arm(userText: string) {
       const region = `演示-${Date.now().toString(36)}`;
       const safe = escapeHtml(userText.slice(0, 80));
+      const cleaned = userText.replace(/\s+/g, '').slice(0, 30);
 
       faux.setResponses([
-        // 第一圈：像真模型一样调用工具写板
+        // 第一圈：先去查用户上传的资料（M7 的检索工具）。
+        // 查到什么由**真实实现**决定 —— 这里只是触发它，所以这一圈验的是真链路。
+        fauxAssistantMessage(
+          [fauxToolCall(TOOL_SEARCH_MATERIALS, { query: cleaned === '' ? '一元二次方程' : cleaned })],
+          { stopReason: 'toolUse' },
+        ),
+        // 第二圈：把讲解写到板上
         fauxAssistantMessage(
           [
             fauxText('好，我写到板上。'),
@@ -74,7 +81,7 @@ export function createDemoChannel(): DemoChannel {
           ],
           { stopReason: 'toolUse' },
         ),
-        // 第二圈：收尾
+        // 第三圈：收尾
         fauxAssistantMessage([fauxText('写好了，你可以在上面圈画。')]),
       ]);
     },

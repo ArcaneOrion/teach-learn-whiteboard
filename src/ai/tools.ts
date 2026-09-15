@@ -16,6 +16,7 @@ import { Type, type Tool } from '@earendil-works/pi-ai';
 
 export const TOOL_BOARD_WRITE = 'board_write';
 export const TOOL_ASK_USER = 'ask_user';
+export const TOOL_SEARCH_MATERIALS = 'search_materials';
 
 export const WRITE_OPS = ['append', 'set', 'remove'] as const;
 
@@ -61,6 +62,19 @@ export const boardTools: Tool[] = [
         }),
         { minItems: 2, maxItems: 6 },
       ),
+    }),
+  },
+  {
+    name: TOOL_SEARCH_MATERIALS,
+    description: [
+      '在**用户自己上传的资料**（书、笔记、论文）里检索相关段落。',
+      '当用户的问题涉及他上传过的内容、或者你打算引用某本书某段原文时，用它去查。',
+      '⚠️ 不要凭记忆编造书里的内容 —— 查不到就如实说没找到。',
+      '查到之后，把引用的段落**用 board_write 写到板上**（标明出自哪本书、哪一节），',
+      '再在旁边写你的讲解。用户要看到原文，而不是听你转述。',
+    ].join(''),
+    parameters: Type.Object({
+      query: Type.String({ description: '要查什么，用一句自然语言描述，例如「判别式怎么决定根的个数」' }),
     }),
   },
 ];

@@ -14,7 +14,7 @@
 
 import type { BoardEvent } from '../core/types';
 import type { SessionRecord } from '../core/session';
-import type { AttachmentRecord, BoardRecord, Store } from './types';
+import type { AttachmentRecord, BoardRecord, ChunkRecord, DocRecord, Store } from './types';
 import { compareGlobalEvents } from '../core/sync';
 
 const DB_NAME = 'teach-learn-whiteboard';
@@ -22,17 +22,36 @@ const DB_NAME = 'teach-learn-whiteboard';
  * ⚠️ 加对象仓库（object store）必须同时**加版本号**，否则升级回调不会跑，
  * 新仓库根本不会被创建 —— 而且**不报错**，直到你第一次用到它才炸。
  *
+ * ⚠️⚠️ **加版本号和加建表语句必须是同一次改动**。
+ * 我踩过一次：先升版本号、再加语句，两步之间 dev server 热重载了 ——
+ * 数据库升到了 v2 但仓库没建，版本号已经往前走，那个库就永远缺一个仓库。
+ * 所以建表写在幂等的 ensureSchema 里（缺哪个补哪个），坏状态能自愈。
+ *
  * v1：events / boards / sessions / meta
  * v2：+ attachments（截图）
- * v3：修一个自己造成的事故 —— 见下方 ensureSchema 的注释
+ * v3：修上面那次事故
+ * v4：+ docs / chunks（资料，M7）
  */
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const STORE_EVENTS = 'events';
 const STORE_BOARDS = 'boards';
 const STORE_SESSIONS = 'sessions';
 const STORE_META = 'meta';
 const STORE_ATTACHMENTS = 'attachments';
+const STORE_DOCS = 'docs';
+const STORE_CHUNKS = 'chunks';
+
+/** 这个数据库里**应该**有哪些仓库。init() 用它检查并自愈 */
+const REQUIRED_STORES = [
+  STORE_EVENTS,
+  STORE_BOARDS,
+  STORE_SESSIONS,
+  STORE_META,
+  STORE_ATTACHMENTS,
+  STORE_DOCS,
+  STORE_CHUNKS,
+];
 
 /** 附件在库里的实际形态：元数据 + 二进制放在同一条记录里 */
 interface StoredAttachment extends AttachmentRecord {
@@ -72,6 +91,15 @@ function ensureSchema(db: IDBDatabase): void {
     const attachments = db.createObjectStore(STORE_ATTACHMENTS, { keyPath: 'id' });
     attachments.createIndex('by_board_createdAt', ['boardId', 'createdAt']);
   }
+  if (!db.objectStoreNames.contains(STORE_DOCS)) {
+    const docs = db.createObjectStore(STORE_DOCS, { keyPath: 'id' });
+    docs.createIndex('by_importedAt', 'importedAt');
+  }
+  if (!db.objectStoreNames.contains(STORE_CHUNKS)) {
+    const chunks = db.createObjectStore(STORE_CHUNKS, { keyPath: 'id' });
+    // 按「文档 + 块序号」取值，也方便按文档整批删
+    chunks.createIndex('by_doc_ord', ['docId', 'ord']);
+  }
 }
 
 /** 把 IDBRequest 包成 Promise */
@@ -101,8 +129,31 @@ export class IndexedDbStore implements Store {
       throw new Error('这个环境没有 IndexedDB');
     }
 
-    this.db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const open = indexedDB.open(DB_NAME, DB_VERSION);
+    this.db = await this.open(DB_VERSION);
+
+    /**
+     * ★ 自愈：万一有仓库缺失，把版本号往前走一格重开。
+     *
+     * 为什么需要它 —— 我**两次**踩到同一个坑：
+     * 加仓库时要改两个地方（版本号 + 建表语句），我一不小心分两次改，
+     * 中间 dev server 热重载了。于是数据库升到了新版本、但仓库没建。
+     * 版本号已经走过，升级回调**再也不会跑**，那个库就永远缺一个仓库，
+     * 直到第一次用到它才炸（`One of the specified object stores was not found`）。
+     *
+     * 光靠"记得一次改完"是不可靠的 —— 让代码自己发现并修复才行。
+     */
+    const missing = REQUIRED_STORES.filter((name) => !this.db!.objectStoreNames.contains(name));
+    if (missing.length > 0) {
+      console.warn(`数据库缺了这些仓库：${missing.join('、')} —— 自动升级修复`);
+      const nextVersion = this.db.version + 1;
+      this.db.close();
+      this.db = await this.open(nextVersion);
+    }
+  }
+
+  private open(version: number): Promise<IDBDatabase> {
+    return new Promise<IDBDatabase>((resolve, reject) => {
+      const open = indexedDB.open(DB_NAME, version);
 
       open.onupgradeneeded = () => {
         ensureSchema(open.result);
@@ -118,6 +169,18 @@ export class IndexedDbStore implements Store {
   private need(): IDBDatabase {
     if (this.db === null) throw new Error('Store 还没 init()');
     return this.db;
+  }
+
+  /**
+   * 关掉连接。
+   *
+   * 应用本身不需要调它（一个会话开一次就够了），但**测试需要**：
+   * 上一个用例留下的连接会把数据库升级/删除请求挡住，
+   * 表现是"下一个用例莫名其妙超时"，而不是一个清楚的报错。
+   */
+  close(): void {
+    this.db?.close();
+    this.db = null;
   }
 
   // ── 事件 ────────────────────────────────────────────────────
@@ -283,6 +346,83 @@ export class IndexedDbStore implements Store {
     return total;
   }
 
+  // ── 资料 ────────────────────────────────────────────────────
+
+  async putDoc(record: DocRecord): Promise<void> {
+    const tx = this.need().transaction(STORE_DOCS, 'readwrite');
+    tx.objectStore(STORE_DOCS).put(record);
+    await txDone(tx);
+  }
+
+  async getDoc(id: string): Promise<DocRecord | null> {
+    const tx = this.need().transaction(STORE_DOCS, 'readonly');
+    const row = await req(tx.objectStore(STORE_DOCS).get(id) as IDBRequest<DocRecord | undefined>);
+    await txDone(tx);
+    return row ?? null;
+  }
+
+  async listDocs(): Promise<DocRecord[]> {
+    const tx = this.need().transaction(STORE_DOCS, 'readonly');
+    const rows = await req(tx.objectStore(STORE_DOCS).getAll() as IDBRequest<DocRecord[]>);
+    await txDone(tx);
+    return rows.sort((a, b) => b.importedAt - a.importedAt);
+  }
+
+  /** 查出某份文档现有的块 id */
+  private async chunkIdsOf(docId: string): Promise<string[]> {
+    const tx = this.need().transaction(STORE_CHUNKS, 'readonly');
+    const index = tx.objectStore(STORE_CHUNKS).index('by_doc_ord');
+    const range = IDBKeyRange.bound([docId, 0], [docId, Number.MAX_SAFE_INTEGER]);
+    const keys = await req(index.getAllKeys(range) as IDBRequest<IDBValidKey[]>);
+    await txDone(tx);
+    return keys.filter((k): k is string => typeof k === 'string');
+  }
+
+  async deleteDoc(id: string): Promise<void> {
+    const chunkIds = await this.chunkIdsOf(id);
+
+    // 文档和它的块放在**同一个事务**里删 —— 分开删的话，
+    // 中途失败会留下永远检索不到、也永远删不掉的孤儿块
+    const tx = this.need().transaction([STORE_DOCS, STORE_CHUNKS], 'readwrite');
+    tx.objectStore(STORE_DOCS).delete(id);
+    const os = tx.objectStore(STORE_CHUNKS);
+    for (const chunkId of chunkIds) os.delete(chunkId);
+    await txDone(tx);
+  }
+
+  async putChunks(docId: string, chunks: readonly ChunkRecord[]): Promise<void> {
+    /**
+     * ⚠️ 必须**先查出旧块的 id、再在一个事务里删旧写新**。
+     *
+     * 踩过的坑：一开始是用游标边遍历边删，然后在同一段代码里直接写新块 ——
+     * 但游标的回调是异步的，新块**先**写进去了，游标随后遍历到它、把它也删了。
+     * 症状是"重新导入之后资料搜不到了"，而且只有 IndexedDB 实现有问题
+     * （内存实现是同步的，看不出这个 bug）——
+     * 这正是「两个实现跑同一套契约测试」抓出来的。
+     */
+    const oldIds = await this.chunkIdsOf(docId);
+
+    const tx = this.need().transaction(STORE_CHUNKS, 'readwrite');
+    const os = tx.objectStore(STORE_CHUNKS);
+    for (const id of oldIds) os.delete(id);
+    for (const chunk of chunks) os.put(chunk);
+    await txDone(tx);
+  }
+
+  async allChunks(): Promise<ChunkRecord[]> {
+    const tx = this.need().transaction(STORE_CHUNKS, 'readonly');
+    const rows = await req(tx.objectStore(STORE_CHUNKS).getAll() as IDBRequest<ChunkRecord[]>);
+    await txDone(tx);
+    return rows;
+  }
+
+  async countChunks(): Promise<number> {
+    const tx = this.need().transaction(STORE_CHUNKS, 'readonly');
+    const n = await req(tx.objectStore(STORE_CHUNKS).count());
+    await txDone(tx);
+    return n;
+  }
+
   // ── 杂项 ────────────────────────────────────────────────────
 
   async getMeta<T>(key: string): Promise<T | null> {
@@ -310,7 +450,15 @@ export class IndexedDbStore implements Store {
   }
 
   async clear(): Promise<void> {
-    const names = [STORE_EVENTS, STORE_BOARDS, STORE_SESSIONS, STORE_META, STORE_ATTACHMENTS];
+    const names = [
+      STORE_EVENTS,
+      STORE_BOARDS,
+      STORE_SESSIONS,
+      STORE_META,
+      STORE_ATTACHMENTS,
+      STORE_DOCS,
+      STORE_CHUNKS,
+    ];
     const tx = this.need().transaction(names, 'readwrite');
     for (const name of names) tx.objectStore(name).clear();
     await txDone(tx);

@@ -53,6 +53,42 @@ export interface AttachmentRecord {
   createdAt: number;
 }
 
+/**
+ * 导入的资料（书、笔记、论文……）
+ *
+ * ⚠️ 两条刻意的边界：
+ *   · **资料不同步**（产品文档 §13：资料不出设备）。原文件是你的东西，
+ *     没必要跟着事件日志在设备间跑 —— 而且它可能很大。
+ *   · **不进备份**：备份里存的是学习记录；资料的原文件你自己有，重新导入即可。
+ */
+export interface DocRecord {
+  id: string;
+  userId: string;
+  title: string;
+  /** 原始文件名 */
+  fileName: string;
+  mime: string;
+  /** 原文有多少字符 */
+  chars: number;
+  /** 切成了多少块 */
+  chunkCount: number;
+  importedAt: number;
+}
+
+/** 资料切出来的块 —— 检索的单位 */
+export interface ChunkRecord {
+  id: string;
+  docId: string;
+  /** 在文档里的第几块（从 0 开始） */
+  ord: number;
+  /** 这一块所属的最近一个标题 */
+  heading: string | null;
+  text: string;
+  /** 在原文里的字符偏移（将来定位到原书位置用） */
+  start: number;
+  end: number;
+}
+
 export interface Store {
   /** 打开数据库 / 准备就绪 */
   init(): Promise<void>;
@@ -104,6 +140,20 @@ export interface Store {
   deleteAttachment(id: string): Promise<void>;
   /** 附件占了多少字节（存储管理要用） */
   attachmentBytes(): Promise<number>;
+
+  // ── 资料（RAG，M7）────────────────────────────────────────
+
+  putDoc(record: DocRecord): Promise<void>;
+  getDoc(id: string): Promise<DocRecord | null>;
+  /** 按导入时间倒序 */
+  listDocs(): Promise<DocRecord[]>;
+  /** 删掉资料，**连同它的全部块** */
+  deleteDoc(id: string): Promise<void>;
+  /** 覆盖某份文档的全部块（重新导入时用） */
+  putChunks(docId: string, chunks: readonly ChunkRecord[]): Promise<void>;
+  /** 全部块 —— 检索要扫一遍 */
+  allChunks(): Promise<ChunkRecord[]>;
+  countChunks(): Promise<number>;
 
   // ── 杂项 ──────────────────────────────────────────────────
 

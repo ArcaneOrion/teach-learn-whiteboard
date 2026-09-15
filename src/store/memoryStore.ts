@@ -7,7 +7,7 @@
 
 import type { BoardEvent } from '../core/types';
 import type { SessionRecord } from '../core/session';
-import type { AttachmentRecord, BoardRecord, Store } from './types';
+import type { AttachmentRecord, BoardRecord, ChunkRecord, DocRecord, Store } from './types';
 import { compareGlobalEvents } from '../core/sync';
 
 export class MemoryStore implements Store {
@@ -15,6 +15,8 @@ export class MemoryStore implements Store {
   private readonly boards = new Map<string, BoardRecord>();
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly attachments = new Map<string, { record: AttachmentRecord; blob: Blob }>();
+  private readonly docs = new Map<string, DocRecord>();
+  private readonly chunks = new Map<string, ChunkRecord>();
   private readonly meta = new Map<string, unknown>();
 
   async init(): Promise<void> {
@@ -107,6 +109,50 @@ export class MemoryStore implements Store {
     return total;
   }
 
+  // ── 资料 ────────────────────────────────────────────────────
+
+  async putDoc(record: DocRecord): Promise<void> {
+    this.docs.set(record.id, { ...record });
+  }
+
+  async getDoc(id: string): Promise<DocRecord | null> {
+    return this.docs.get(id) ?? null;
+  }
+
+  async listDocs(): Promise<DocRecord[]> {
+    return [...this.docs.values()].sort((a, b) => b.importedAt - a.importedAt);
+  }
+
+  async deleteDoc(id: string): Promise<void> {
+    this.docs.delete(id);
+    // 块要一起删掉 —— 留着就是永远检索不到、也永远删不掉的垃圾
+    for (const [chunkId, chunk] of this.chunks) {
+      if (chunk.docId === id) this.chunks.delete(chunkId);
+    }
+  }
+
+  async putChunks(docId: string, chunks: readonly ChunkRecord[]): Promise<void> {
+    // 先清掉这份文档原有的块（重新导入时不该留下旧版本）
+    await this.deleteChunksOf(docId);
+    for (const chunk of chunks) this.chunks.set(chunk.id, { ...chunk });
+  }
+
+  async allChunks(): Promise<ChunkRecord[]> {
+    return [...this.chunks.values()].sort((a, b) =>
+      a.docId === b.docId ? a.ord - b.ord : a.docId < b.docId ? -1 : 1,
+    );
+  }
+
+  async countChunks(): Promise<number> {
+    return this.chunks.size;
+  }
+
+  private async deleteChunksOf(docId: string): Promise<void> {
+    for (const [chunkId, chunk] of this.chunks) {
+      if (chunk.docId === docId) this.chunks.delete(chunkId);
+    }
+  }
+
   async getMeta<T>(key: string): Promise<T | null> {
     return (this.meta.get(key) as T | undefined) ?? null;
   }
@@ -124,6 +170,8 @@ export class MemoryStore implements Store {
     this.boards.clear();
     this.sessions.clear();
     this.attachments.clear();
+    this.docs.clear();
+    this.chunks.clear();
     this.meta.clear();
   }
 }

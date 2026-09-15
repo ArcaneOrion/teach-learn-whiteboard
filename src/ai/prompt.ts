@@ -14,6 +14,8 @@ export interface PromptContext {
   boardTitle: string;
   /** 板上已经写过哪些区域（让 AI 知道可以 set 什么） */
   regions: readonly string[];
+  /** 用户上传了几份资料（M7）。0 的话就不提检索工具 */
+  materialCount?: number;
 }
 
 export function systemPrompt(ctx: PromptContext): string {
@@ -21,6 +23,22 @@ export function systemPrompt(ctx: PromptContext): string {
     ctx.regions.length > 0
       ? `板上现有的区域（可以对这些用 set 修改、用 remove 删除）：${ctx.regions.join('、')}。`
       : '板上现在还没有内容。';
+
+  /**
+   * 只有用户真的传过资料才提检索工具。
+   * 没资料的时候提它，模型会去查、查不到、然后开始编 —— 反而更糟。
+   */
+  const materials =
+    (ctx.materialCount ?? 0) > 0
+      ? [
+          '',
+          '## 用户上传了资料',
+          `用户上传了 ${String(ctx.materialCount)} 份资料。当问题涉及这些资料、或者你要引用原文时，`,
+          '先用 search_materials 去查，把查到的**原文**用 board_write 写到板上（标明出自哪本书、哪一节），',
+          '再在旁边写你的讲解。',
+          '**不要凭记忆编书里的内容** —— 查不到就如实说没找到。',
+        ].join('\n')
+      : '';
 
   return [
     '你在一块白板上给用户讲课。用户会用手写笔在白板上写字、画圈、做标注。',
@@ -52,6 +70,7 @@ export function systemPrompt(ctx: PromptContext): string {
     '',
     '## 板面现状',
     `板的名字是「${ctx.boardTitle}」。${regions}`,
+    materials,
   ].join('\n');
 }
 
