@@ -774,6 +774,18 @@ function paintChoices(): void {
   }
 
   choiceBar.hidden = false;
+
+  /**
+   * 前面挂一句「选一个」。
+   *
+   * 曾经这里只有一排光秃秃的按钮 —— 万一模型忘了先把问题写到板上，
+   * 用户看到的就是三个不知所谓的按钮。加一句话很便宜，同一行不额外占高度。
+   */
+  const hint = document.createElement('span');
+  hint.className = 'choicebar__hint';
+  hint.textContent = '选一个';
+  choiceBar.append(hint);
+
   for (const choice of choices) {
     const btn = document.createElement('button');
     btn.className = 'btn';

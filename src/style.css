@@ -427,6 +427,12 @@ body {
   display: none;
 }
 
+.choicebar__hint {
+  align-self: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 /* ── 待发送的截图 ───────────────────────────────────────────── */
 
 .pending {
