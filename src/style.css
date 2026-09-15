@@ -1084,3 +1084,17 @@ body {
 .field__error {
   color: #b91c1c;
 }
+
+/* 搜索结果来自哪块板（检索是跨板的，不说清就不知道结果在哪） */
+.hit__board {
+  flex: none;
+  max-width: 110px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 11px;
+}

@@ -1339,21 +1339,70 @@ openHistoryBtn.addEventListener('click', () => {
  * 每次打开面板时重建 —— 几千条事件重建是毫秒级的，比维护增量索引简单得多，
  * 而且永远和板上真实内容一致（不会出现"索引里有、板上没有"的鬼影）。
  */
-function buildSearchIndex(): SearchDoc[] {
-  if (log === null) return [];
-  return dedupeByRegion(
-    buildIndex({
-      boardId,
-      boardTitle: board.title,
-      events: log.all,
-      toText: htmlToText,
-    }),
-  );
+/**
+ * 建检索索引 —— **跨全部板**。
+ *
+ * ## 为什么不是只索引当前板
+ *
+ * 原来是 `buildIndex({ boardId, boardTitle, events: log.all })`，
+ * 只看当前这块板。但产品文档 §9.5 写的是「你搜『一元二次』，
+ * 就把**所有**含这五个字的内容列出来」。
+ *
+ * 而「板 = 主题」意味着用户会攒很多块板（这正是这个 App 鼓励的用法）。
+ * 只搜当前板的话，攒了三十块板之后**搜什么都找不到**（除非你正好站在对的那块板上）——
+ * 那就把「学了找不回来」这个核心痛点原样留着没解决。
+ *
+ * 实现上按板分组再各自建索引（`buildIndex` 是单板接口），
+ * 这样是 O(事件数) 而不是「每块板都把所有事件扫一遍」。
+ */
+async function buildSearchIndex(): Promise<SearchDoc[]> {
+  const theStore = store;
+  if (theStore === null) return [];
+
+  const [events, boards] = await Promise.all([theStore.allEvents(), theStore.listBoards()]);
+
+  const byBoard = new Map<string, BoardEvent[]>();
+  for (const e of events) {
+    const list = byBoard.get(e.boardId);
+    if (list === undefined) byBoard.set(e.boardId, [e]);
+    else list.push(e);
+  }
+
+  const out: SearchDoc[] = [];
+  for (const board of boards) {
+    const list = byBoard.get(board.id);
+    if (list === undefined || list.length === 0) continue;
+    out.push(
+      ...buildIndex({
+        boardId: board.id,
+        boardTitle: board.title,
+        events: list,
+        toText: htmlToText,
+      }),
+    );
+  }
+  return dedupeByRegion(out);
 }
 
 /** 点了搜索结果 → 把板面滚到对应的块，并闪一下让人看见找到了哪儿 */
-function locateOnBoard(doc: SearchDoc): void {
-  if (doc.kind !== 'ai.write' || doc.region === null) return;
+async function locateOnBoard(doc: SearchDoc): Promise<void> {
+  /**
+   * ★ 检索是跨全部板的，所以点一条别的板上的结果时**要先切过去**。
+   *
+   * 不切的话，用户点了结果只会看到「这一块在板上已经不在了」——
+   * 而它其实好好的，只是在另一块板上。
+   */
+  if (doc.boardId !== boardId) {
+    await switchBoard(doc.boardId);
+    // 换板之后内容层要重排完才找得到那一块
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+  }
+
+  if (doc.kind !== 'ai.write' || doc.region === null) {
+    // 不是板面块（比如截图、"你说的"）—— 切过去就够了
+    if (doc.kind !== 'ai.write') setStatus(`在「${doc.boardTitle}」上`);
+    return;
+  }
 
   // 用 dataset 逐块比对，而不是拼 CSS 选择器 —— 区域名里可能有引号之类的字符
   const key = `r:${doc.region}`;
@@ -1866,7 +1915,7 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
           if (hint !== null) sessionHints.set(sessionId, hint);
         }
         return {
-          index: buildSearchIndex(),
+          index: await buildSearchIndex(),
           sessions: await theStore.listSessions(),
           sessionHints,
         };

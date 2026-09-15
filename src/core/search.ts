@@ -30,6 +30,14 @@ export interface SearchDoc {
   id: string;
   kind: SearchDocKind;
   boardId: string;
+  /**
+   * 这块板叫什么。
+   *
+   * ★ 检索是**跨全部板**的（产品文档 §9.5：「你搜『一元二次』，
+   * 就把**所有**含这五个字的内容列出来」），所以结果列表里必须能看出
+   * 每一条来自哪块板 —— 否则一列结果全是"不知道在哪"。
+   */
+  boardTitle: string;
   sessionId: string;
   /** 显示用的标题 */
   title: string;
@@ -61,6 +69,7 @@ export function buildIndex(input: BuildIndexInput): SearchDoc[] {
     const base = {
       id: event.id,
       boardId: event.boardId,
+      boardTitle: input.boardTitle,
       sessionId: event.sessionId,
       createdAt: event.createdAt,
       region: null as string | null,

@@ -25,8 +25,8 @@ export interface HistoryPanelCallbacks {
     /** 会话 id → 「这次学了什么」（用户自己说的第一句话） */
     sessionHints: ReadonlyMap<string, string>;
   }>;
-  /** 点了某条搜索结果：把板面滚到对应的块上去 */
-  locate: (doc: SearchDoc) => void;
+  /** 点了某条搜索结果：切到它所在的板，并把板面滚到对应的块上去 */
+  locate: (doc: SearchDoc) => void | Promise<void>;
 }
 
 function must<T extends Element>(root: ParentNode, selector: string): T {
@@ -151,6 +151,14 @@ export class HistoryPanel {
     title.className = 'hit__title';
     title.textContent = hit.title;
 
+    /**
+     * 检索是**跨全部板**的，所以每条结果都得说清它来自哪块板 ——
+     * 否则一列结果全是"不知道在哪"，点进去还会莫名其妙跳到别的板。
+     */
+    const board = document.createElement('span');
+    board.className = 'hit__board';
+    board.textContent = hit.boardTitle;
+
     const when = document.createElement('span');
     when.className = 'hit__when';
     when.textContent = new Date(hit.createdAt).toLocaleString('zh-CN', {
@@ -160,7 +168,7 @@ export class HistoryPanel {
       minute: '2-digit',
     });
 
-    head.append(kind, title, when);
+    head.append(kind, board, title, when);
 
     const body = document.createElement('div');
     body.className = 'hit__body';
