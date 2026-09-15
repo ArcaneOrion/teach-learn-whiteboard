@@ -18,6 +18,7 @@ export type Actor = 'user' | 'ai' | 'system';
 export type EventKind =
   // 板的生命周期
   | 'board.create'
+  | 'board.rename'
   // AI 写板面
   | 'ai.write'
   | 'ai.ask'
@@ -88,6 +89,13 @@ export type BoardOp =
 export type BoardEvent = EventEnvelope &
   (
     | { kind: 'board.create'; payload: { title: string } }
+    /**
+     * 改板的名字。
+     *
+     * 是事件而不是"改一下 BoardRecord 的字段" —— 因为板面状态必须是
+     * **事件序列的纯函数**，否则回放日志、同步到别的设备之后名字就对不上了。
+     */
+    | { kind: 'board.rename'; payload: { title: string } }
     | { kind: 'ai.write'; payload: BoardOp }
     | { kind: 'ai.ask'; payload: { choices: Choice[] } }
     | { kind: 'user.answer'; payload: { choiceId: string } }

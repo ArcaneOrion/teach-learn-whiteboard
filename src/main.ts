@@ -39,6 +39,7 @@ import { SettingsPanel } from './ui/settingsPanel';
 import { HistoryPanel } from './ui/historyPanel';
 import { DataPanel } from './ui/dataPanel';
 import { MaterialsPanel } from './ui/materialsPanel';
+import { BoardsPanel, type BoardSummary } from './ui/boardsPanel';
 import { htmlToText } from './ui/htmlText';
 import { blobToBase64, blobToDataUrl } from './base64';
 import { rasterizeBoard } from './ui/rasterize';
@@ -89,6 +90,7 @@ const openSettingsBtn = must<HTMLButtonElement>('#open-settings');
 const openHistoryBtn = must<HTMLButtonElement>('#open-history');
 const openDataBtn = must<HTMLButtonElement>('#open-data');
 const openMaterialsBtn = must<HTMLButtonElement>('#open-materials');
+const openBoardsBtn = must<HTMLButtonElement>('#open-boards');
 
 // ── 状态 ──────────────────────────────────────────────────────
 
@@ -255,7 +257,11 @@ async function onNewEvent(event: BoardEvent): Promise<void> {
   }
 
   if (session !== null) session.lastActive = event.createdAt;
-  if (boardRecord !== null) boardRecord.updatedAt = event.createdAt;
+  // ⚠️ 只有**属于当前这块板**的事件才更新 boardRecord ——
+  //    否则给别的板改名时，会把当前板的"最近更新时间"也带跑偏
+  if (boardRecord !== null && event.boardId === boardRecord.id) {
+    boardRecord.updatedAt = event.createdAt;
+  }
   scheduleMetaSave();
 
   // 记录面板开着的时候，新内容进来要让它能立刻搜到
@@ -1122,6 +1128,135 @@ openMaterialsBtn.addEventListener('click', () => {
   void materialsPanel?.open();
 });
 
+// ── 板列表：多块板之间切换 ────────────────────────────────────
+
+let boardsPanel: BoardsPanel | null = null;
+
+/**
+ * 给某块板建一个事件日志。
+ *
+ * ⚠️ `sessionId` 用的是**当前会话**，不是新建一个 ——
+ * 这就是「板 ≠ 会话」的落地：同一次学习里可以翻好几块板。
+ */
+function makeLogFor(id: string, events: readonly BoardEvent[]): EventLog {
+  const theLog = new EventLog(
+    { boardId: id, sessionId: session?.id ?? '', deviceId },
+    events,
+  );
+  theLog.onAppend((e) => {
+    void onNewEvent(e);
+  });
+  return theLog;
+}
+
+/** 切到另一块板。会话不变。 */
+async function switchBoard(nextId: string): Promise<void> {
+  const theStore = store;
+  if (theStore === null || nextId === boardId) return;
+
+  const next = await theStore.getBoard(nextId);
+  if (next === null) return;
+
+  boardId = nextId;
+  boardRecord = next;
+  log = makeLogFor(nextId, await theStore.loadEvents(nextId));
+
+  // 对话上下文是「这块板上的往来」，换板就得重来
+  conversation.messages = [];
+  seedConversation(log);
+
+  recompose();
+  renderer.redrawAll();
+
+  const content = countContentEvents(log.all);
+  setStatus(`切到「${next.title}」${content === 0 ? '（还是空的）' : ` · ${content} 处内容`}`);
+}
+
+function makeBoardsPanel(theStore: Store): BoardsPanel {
+  const summaries = async (): Promise<BoardSummary[]> => {
+    const boards = await theStore.listBoards();
+    const out: BoardSummary[] = [];
+    for (const board of boards) {
+      out.push({
+        board,
+        contentCount: countContentEvents(await theStore.loadEvents(board.id)),
+        isCurrent: board.id === boardId,
+      });
+    }
+    return out;
+  };
+
+  return new BoardsPanel({
+    list: summaries,
+
+    onSwitch: async (id) => {
+      await switchBoard(id);
+    },
+
+    onCreate: async (title) => {
+      const now = Date.now();
+      const id = makeId('b');
+      await theStore.putBoard({
+        id, userId: 'local', title, createdAt: now, updatedAt: now, archived: 0,
+      });
+      await switchBoard(id);
+      // 写一条 board.create，这块板才有名字和出生时间
+      log?.createBoard(title);
+      recompose();
+    },
+
+    onRename: async (id, title) => {
+      if (id === boardId && log !== null) {
+        // 当前这块：走正常的事件通路
+        log.renameBoard(title);
+        if (boardRecord !== null) {
+          boardRecord.title = title;
+          await theStore.putBoard(boardRecord);
+        }
+        recompose();
+        return;
+      }
+
+      // 别的板：建一个临时日志把重命名事件追加进去（onAppend 会负责落盘）
+      const record = await theStore.getBoard(id);
+      if (record === null) return;
+      const temp = makeLogFor(id, await theStore.loadEvents(id));
+      const event = temp.renameBoard(title);
+      await theStore.putBoard({ ...record, title, updatedAt: event.createdAt });
+    },
+
+    onDelete: async (id) => {
+      await theStore.deleteBoard(id);
+      // 删掉的正好是当前这块 → 换一块有内容的，没有就新建
+      if (id === boardId) {
+        const rest = await theStore.listBoards();
+        const counts = new Map<string, number>();
+        for (const b of rest) counts.set(b.id, countContentEvents(await theStore.loadEvents(b.id)));
+        const next = pickStartupBoard(rest, (bid) => counts.get(bid) ?? 0);
+
+        if (next === null) {
+          const now = Date.now();
+          const freshId = makeId('b');
+          await theStore.putBoard({
+            id: freshId, userId: 'local', title: '未命名', createdAt: now, updatedAt: now, archived: 0,
+          });
+          boardId = '';
+          await switchBoard(freshId);
+          log?.createBoard('未命名');
+          recompose();
+        } else {
+          boardId = '';
+          await switchBoard(next.id);
+        }
+      }
+    },
+  });
+}
+
+openBoardsBtn.addEventListener('click', () => {
+  void boardsPanel?.open();
+});
+
 // ── 启动 ──────────────────────────────────────────────────────
 
 async function openStore(): Promise<void> {
@@ -1291,6 +1426,7 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
     });
     dataPanel = makeDataPanel(theStore);
     materialsPanel = makeMaterialsPanel(theStore);
+    boardsPanel = makeBoardsPanel(theStore);
   }
 
   // 调试读数：生产构建里默认关掉（它是浮在板面上的，会挡住内容）；
@@ -1307,8 +1443,10 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
   paintHud();
 
   const restored = loadedCount > 0 ? `读回 ${loadedCount} 条历史事件` : '新板';
+  // 退回内存存储是**会丢数据**的状态（刷新就没了），所以放在状态条最前面说
+  const warning = persistent ? '' : '⚠ 本地存储打不开，这次的数据不会保存 · ';
   setStatus(
-    `M2 · ${restored}${isNewSession ? ' · 新会话' : ' · 续上次会话'}${persistent ? '' : ' · ⚠ 数据不会保存'}`,
+    `${warning}M2 · ${restored}${isNewSession ? ' · 新会话' : ' · 续上次会话'}`,
   );
 }
 

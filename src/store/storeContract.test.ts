@@ -200,6 +200,32 @@ function chunk(over: Partial<ChunkRecord> & { id: string; docId: string; ord: nu
       expect((await store.listBoards()).map((b) => b.id)).toEqual(['new', 'mid', 'old']);
     });
 
+    it('★ 删板要连它的事件和截图一起删 —— 否则留下永远清不掉的孤儿', async () => {
+      await store.putBoard(board({ id: 'b1' }));
+      await store.putBoard(board({ id: 'b2' }));
+      await store.appendEvents([
+        event({ id: 'e1', seq: 1, boardId: 'b1' }),
+        event({ id: 'e2', seq: 1, boardId: 'b2' }),
+      ]);
+      await store.putAttachment(attachment({ id: 'a1', boardId: 'b1' }), new Blob(['x']));
+      await store.putAttachment(attachment({ id: 'a2', boardId: 'b2' }), new Blob(['y']));
+
+      await store.deleteBoard('b1');
+
+      expect(await store.getBoard('b1')).toBeNull();
+      expect(await store.loadEvents('b1')).toHaveLength(0);
+      expect(await store.getAttachment('a1')).toBeNull();
+
+      // 别的板一点都不受影响
+      expect(await store.getBoard('b2')).not.toBeNull();
+      expect(await store.loadEvents('b2')).toHaveLength(1);
+      expect(await store.getAttachment('a2')).not.toBeNull();
+    });
+
+    it('删不存在的板不报错', async () => {
+      await expect(store.deleteBoard('nope')).resolves.toBeUndefined();
+    });
+
     // ── 会话 ──────────────────────────────────────────────────
 
     it('会话的读写与列表', async () => {

@@ -43,6 +43,31 @@ describe('deriveBoard', () => {
     expect(board.updatedAt).toBe(500);
   });
 
+  it('★ 标题取「最后一条 create 或 rename」—— 改了名之后列表也得跟着变', () => {
+    const board = deriveBoard('b1', [
+      ev({ id: 'e1', boardId: 'b1', kind: 'board.create', payload: { title: '未命名' }, createdAt: 100 }),
+      ev({ id: 'e2', boardId: 'b1', kind: 'board.rename', payload: { title: '一元二次方程' }, createdAt: 200 }),
+    ]);
+    expect(board.title).toBe('一元二次方程');
+  });
+
+  it('改名事件乱序到达时，仍然按时间取最后那条', () => {
+    const events = [
+      ev({ id: 'e1', boardId: 'b1', kind: 'board.create', payload: { title: '一' }, createdAt: 100 }),
+      ev({ id: 'e2', boardId: 'b1', kind: 'board.rename', payload: { title: '二' }, createdAt: 200 }),
+      ev({ id: 'e3', boardId: 'b1', kind: 'board.rename', payload: { title: '三' }, createdAt: 300 }),
+    ];
+    expect(deriveBoard('b1', events).title).toBe('三');
+    expect(deriveBoard('b1', [...events].reverse()).title).toBe('三');
+  });
+
+  it('只有 rename、没有 create 也能推出标题', () => {
+    const board = deriveBoard('b1', [
+      ev({ id: 'e1', boardId: 'b1', kind: 'board.rename', payload: { title: '后来起的名' }, createdAt: 100 }),
+    ]);
+    expect(board.title).toBe('后来起的名');
+  });
+
   it('只认这块板的事件', () => {
     const board = deriveBoard('b1', [
       ev({ id: 'e1', boardId: 'b1', kind: 'board.create', payload: { title: '我的' }, createdAt: 100 }),

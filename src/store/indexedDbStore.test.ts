@@ -71,6 +71,40 @@ describe('缺仓库自愈', () => {
     store.close();
   });
 
+  it('★ 数据库版本比代码里的还新时，仍然能打开（这是自愈之后的常态）', async () => {
+    await deleteDatabase();
+
+    // 造一个版本号远超代码常量的库 —— 自愈之后就是这个样子
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 99);
+      req.onupgradeneeded = () => {
+        req.result.createObjectStore('events', { keyPath: 'id' });
+      };
+      req.onsuccess = () => {
+        req.result.close();
+        resolve();
+      };
+      req.onerror = () => reject(req.error);
+    });
+
+    /**
+     * ⚠️ 这条测试盯的是一个**只在真浏览器里暴露**的 bug：
+     * 自愈把数据库升到了比 `DB_VERSION` 更高的版本，而
+     * `indexedDB.open(name, 更低的版本)` 会抛 `VersionError`（规范行为）——
+     * 于是 App 再也打不开自己的数据库，静默退回内存存储，
+     * 「刷新之后数据全没了」。单元测试当时没抓到，是因为这里才第一次覆盖到。
+     */
+    const store = new IndexedDbStore();
+    await store.init();
+
+    // 缺的仓库也自己补上了
+    await expect(store.listDocs()).resolves.toEqual([]);
+    await expect(store.listSessions()).resolves.toEqual([]);
+    await expect(store.countChunks()).resolves.toBe(0);
+
+    store.close();
+  });
+
   it('全新数据库 init() 之后所有仓库都齐', async () => {
     await deleteDatabase();
 

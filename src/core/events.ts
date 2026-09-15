@@ -131,6 +131,11 @@ export class EventLog {
     return this.append('user', 'board.create', { title });
   }
 
+  /** 改板的名字。同样是**追加一条事件**，不是去改某个字段 */
+  renameBoard(title: string): EventOf<'board.rename'> {
+    return this.append('user', 'board.rename', { title });
+  }
+
   // ── AI 写板面 ──────────────────────────────────────────────
 
   aiWrite(op: BoardOp): EventOf<'ai.write'> {

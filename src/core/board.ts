@@ -91,6 +91,11 @@ function applyEvent(state: BoardState, e: BoardEvent): void {
       state.title = e.payload.title;
       return;
 
+    case 'board.rename':
+      // 后改的赢 —— 日志里两条都留着（可追溯），折叠结果只有一个
+      state.title = e.payload.title;
+      return;
+
     case 'ai.write':
       applyWrite(state, e.payload, e.id);
       return;

@@ -347,6 +347,65 @@ describe('对 AI 输出表态', () => {
   });
 });
 
+// ── 板的名字 ──────────────────────────────────────────────────
+
+describe('板的重命名', () => {
+  it('改名会覆盖建板时的名字', () => {
+    const log = makeLog();
+    log.createBoard('未命名');
+    expect(composeBoard('b1', log.all).title).toBe('未命名');
+
+    log.renameBoard('一元二次方程');
+    expect(composeBoard('b1', log.all).title).toBe('一元二次方程');
+  });
+
+  it('★ 改名是**追加一条事件**，不是去改原来那条', () => {
+    const log = makeLog();
+    log.createBoard('旧名字');
+    const rename = log.renameBoard('新名字');
+
+    expect(rename.kind).toBe('board.rename');
+    // 原来那条还在（可追溯）
+    expect(log.all.filter((e) => e.kind === 'board.create')).toHaveLength(1);
+    expect(log.all).toHaveLength(2);
+  });
+
+  it('改多次，最后一次赢', () => {
+    const log = makeLog();
+    log.createBoard('一');
+    log.renameBoard('二');
+    log.renameBoard('三');
+    expect(composeBoard('b1', log.all).title).toBe('三');
+  });
+
+  it('乱序到达时结果一致（同步的地基）', () => {
+    const log = makeLog();
+    log.createBoard('一');
+    log.renameBoard('二');
+    const inOrder = composeBoard('b1', log.all);
+    expect(composeBoard('b1', [...log.all].reverse())).toEqual(inOrder);
+  });
+
+  it('改名不影响板面内容和笔迹', () => {
+    const log = makeLog();
+    log.aiWrite({ op: 'append', html: '<p>x</p>', region: 'a' });
+    log.writeStroke(stroke('s1'));
+    const before = composeBoard('b1', log.all);
+
+    log.renameBoard('新名字');
+    const after = composeBoard('b1', log.all);
+
+    expect(after.blocks).toEqual(before.blocks);
+    expect(after.strokes).toEqual(before.strokes);
+    expect(after.title).toBe('新名字');
+  });
+
+  it('改名由用户发起', () => {
+    const log = makeLog();
+    expect(log.renameBoard('x').actor).toBe('user');
+  });
+});
+
 // ── 顺序鲁棒性（同步的地基）──────────────────────────────────
 
 describe('事件顺序', () => {

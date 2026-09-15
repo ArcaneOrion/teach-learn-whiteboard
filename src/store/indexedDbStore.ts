@@ -129,7 +129,7 @@ export class IndexedDbStore implements Store {
       throw new Error('这个环境没有 IndexedDB');
     }
 
-    this.db = await this.open(DB_VERSION);
+    this.db = await this.openAtLeast(DB_VERSION);
 
     /**
      * ★ 自愈：万一有仓库缺失，把版本号往前走一格重开。
@@ -145,15 +145,67 @@ export class IndexedDbStore implements Store {
     const missing = REQUIRED_STORES.filter((name) => !this.db!.objectStoreNames.contains(name));
     if (missing.length > 0) {
       console.warn(`数据库缺了这些仓库：${missing.join('、')} —— 自动升级修复`);
+
       const nextVersion = this.db.version + 1;
       this.db.close();
-      this.db = await this.open(nextVersion);
+      this.db = null;
+
+      /**
+       * ⚠️ 关掉之后**必须让出一拍再重开**。
+       *
+       * `IDBDatabase.close()` 是**异步**的：它只是标记"要关了"，
+       * 真正断开要等当前事务跑完。紧接着就 `open(更高版本)` 的话，
+       * 旧连接还被算作"开着"，升级请求会一直 `blocked`。
+       */
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        try {
+          this.db = await this.openAtLeast(nextVersion);
+          lastError = null;
+          break;
+        } catch (err) {
+          lastError = err;
+        }
+      }
+      if (this.db === null) {
+        throw lastError instanceof Error ? lastError : new Error('升级数据库失败');
+      }
     }
   }
 
-  private open(version: number): Promise<IDBDatabase> {
+  /**
+   * 按**不低于** minVersion 的版本打开。
+   *
+   * ⚠️ 为什么不能直接 `open(DB_VERSION)` —— 这个坑很难看：
+   *
+   * 自愈会把数据库升到比代码里的 `DB_VERSION` 更高的版本。
+   * 而 `indexedDB.open(name, 更低的版本)` 会抛 **`VersionError`**（这是规范行为）。
+   * 于是 App **再也打不开自己的数据库**，每次都退回内存存储 ——
+   * 表现是"刷新之后数据全没了"，而且只有真浏览器会这样
+   * （fake-indexeddb 的时序/校验和真实实现不一样，单元测试没抓到）。
+   *
+   * 所以：版本比代码高的时候，按"当前版本"打开就行（不传版本号）。
+   */
+  private async openAtLeast(minVersion: number): Promise<IDBDatabase> {
+    try {
+      return await this.open(minVersion);
+    } catch (err) {
+      const isVersionError =
+        err instanceof DOMException
+          ? err.name === 'VersionError'
+          : err instanceof Error && err.name === 'VersionError';
+      if (!isVersionError) throw err;
+      return this.open();
+    }
+  }
+
+  private open(version?: number): Promise<IDBDatabase> {
     return new Promise<IDBDatabase>((resolve, reject) => {
-      const open = indexedDB.open(DB_NAME, version);
+      const open =
+        version === undefined
+          ? indexedDB.open(DB_NAME)
+          : indexedDB.open(DB_NAME, version);
 
       open.onupgradeneeded = () => {
         ensureSchema(open.result);
@@ -257,6 +309,34 @@ export class IndexedDbStore implements Store {
     await txDone(tx);
     // 最近更新的排前面
     return rows.sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  async deleteBoard(id: string): Promise<void> {
+    // 先把要删的事件 id 和附件 id 查出来（独立事务），
+    // 再在一个事务里把所有东西一起删 —— 免得删到一半留下孤儿
+    const eventIds = await this.idsOfBoard(STORE_EVENTS, 'by_board_seq', id);
+    const attachmentIds = await this.idsOfBoard(STORE_ATTACHMENTS, 'by_board_createdAt', id);
+
+    const tx = this.need().transaction(
+      [STORE_BOARDS, STORE_EVENTS, STORE_ATTACHMENTS],
+      'readwrite',
+    );
+    tx.objectStore(STORE_BOARDS).delete(id);
+    const events = tx.objectStore(STORE_EVENTS);
+    for (const eventId of eventIds) events.delete(eventId);
+    const attachments = tx.objectStore(STORE_ATTACHMENTS);
+    for (const attachmentId of attachmentIds) attachments.delete(attachmentId);
+    await txDone(tx);
+  }
+
+  /** 按 [boardId, 序号] 索引查出某块板下所有记录的 id */
+  private async idsOfBoard(storeName: string, indexName: string, boardId: string): Promise<string[]> {
+    const tx = this.need().transaction(storeName, 'readonly');
+    const index = tx.objectStore(storeName).index(indexName);
+    const range = IDBKeyRange.bound([boardId, 0], [boardId, Number.MAX_SAFE_INTEGER]);
+    const keys = await req(index.getAllKeys(range) as IDBRequest<IDBValidKey[]>);
+    await txDone(tx);
+    return keys.filter((k): k is string => typeof k === 'string');
   }
 
   // ── 会话 ────────────────────────────────────────────────────

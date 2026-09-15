@@ -121,6 +121,14 @@ export interface Store {
   getBoard(id: string): Promise<BoardRecord | null>;
   /** 按最近更新倒序 */
   listBoards(): Promise<BoardRecord[]>;
+  /**
+   * 删掉一块板 —— **连它的全部事件和截图一起删**。
+   *
+   * 只删记录的话，那些事件会永远留在库里：界面上看不到，检索也搜不到
+   * （没有板就没法打开），但每次同步都会把它们推上去、每次备份都会带上它们。
+   * 那就是永远清不掉的垃圾。
+   */
+  deleteBoard(id: string): Promise<void>;
 
   // ── 会话 ──────────────────────────────────────────────────
 

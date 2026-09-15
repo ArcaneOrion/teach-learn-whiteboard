@@ -93,6 +93,7 @@
         <button class="btn" id="open-history" type="button">🕘 记录</button>
         <button class="btn" id="open-data" type="button">💾 数据</button>
         <button class="btn" id="open-materials" type="button">📚 资料</button>
+        <button class="btn" id="open-boards" type="button">🗂 板</button>
       </div>
     </footer>
 
@@ -251,6 +252,30 @@
         资料<strong>只在这台设备上，不同步</strong>，也<strong>不进备份</strong> ——
         原文件你自己有，换设备重新导入即可。
       </p>
+    </dialog>
+
+    <!--
+      板列表。板 = 一个主题（技术文档 §8），会不断累积，所以必须有地方能看到和切换。
+      切板**不会**新建会话 —— 你可以在同一次学习里翻好几块板。
+    -->
+    <dialog class="settings" id="boards">
+      <div class="settings__head">
+        <h2>板</h2>
+        <button class="btn" id="close-boards" type="button">关闭</button>
+      </div>
+
+      <p class="settings__note">
+        一块板 = 一个主题。点一行就能切过去，<strong>笔迹和内容都各自留着自己的</strong>。
+        <br />切换不会新开一次学习 —— 同一次学习里可以翻好几块板。
+      </p>
+
+      <div class="settings__form">
+        <button class="btn btn--primary" id="boards-new" type="button">新建一块板</button>
+      </div>
+
+      <div class="settings__list" id="boards-list"></div>
+
+      <p class="settings__foot" id="boards-note"></p>
     </dialog>
 
     <script type="module" src="/src/main.ts"></script>

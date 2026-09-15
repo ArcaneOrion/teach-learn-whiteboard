@@ -19,18 +19,26 @@
 
 import type { BoardEvent } from '../core/types';
 import type { BoardRecord, Store } from './types';
+import { compareGlobalEvents } from '../core/sync';
 
-/** 从事件里推导出一块板的元信息 */
+/**
+ * 从事件里推导出一块板的元信息
+ *
+ * ⚠️ 标题取的是**最后一条** board.create **或** board.rename。
+ * 只在建板时读过一次的话，用户改了名字之后列表里还是旧名字 ——
+ * 而板面（折叠结果）显示的是新名字，两处对不上。
+ */
 export function deriveBoard(boardId: string, events: readonly BoardEvent[]): BoardRecord {
   const mine = events.filter((e) => e.boardId === boardId);
 
-  // 标题取**最后一条** board.create —— 将来加「重命名」时也是这个规则
   let title = '未命名';
   let createdAt = Number.POSITIVE_INFINITY;
   let updatedAt = 0;
 
-  for (const e of mine) {
-    if (e.kind === 'board.create') title = e.payload.title;
+  // 按全局顺序走一遍，最后写标题的那条说了算
+  const ordered = [...mine].sort(compareGlobalEvents);
+  for (const e of ordered) {
+    if (e.kind === 'board.create' || e.kind === 'board.rename') title = e.payload.title;
     if (e.createdAt < createdAt) createdAt = e.createdAt;
     if (e.createdAt > updatedAt) updatedAt = e.createdAt;
   }

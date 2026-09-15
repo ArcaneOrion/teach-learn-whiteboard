@@ -65,6 +65,16 @@ export class MemoryStore implements Store {
     return [...this.boards.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
+  async deleteBoard(id: string): Promise<void> {
+    this.boards.delete(id);
+    for (const [eventId, event] of this.events) {
+      if (event.boardId === id) this.events.delete(eventId);
+    }
+    for (const [attId, att] of this.attachments) {
+      if (att.record.boardId === id) this.attachments.delete(attId);
+    }
+  }
+
   async putSession(session: SessionRecord): Promise<void> {
     this.sessions.set(session.id, { ...session });
   }
