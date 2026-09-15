@@ -43,6 +43,24 @@ body {
      后三个平时是 hidden（display:none），会自动从栅格里让出位置，
      所以多留几行不会有空白 */
   grid-template-rows: auto 1fr auto auto auto auto;
+
+  /**
+   * ★★ 这一行是**必须的**，不是可选的。
+   *
+   * grid 的默认列宽是 `auto`，而 `auto` 的**下限是 min-content** ——
+   * 只要有任何一个子元素的最小内容宽度超过视口（最典型的就是
+   * `<select>`：它的宽度由**最长的那个选项文字**决定），
+   * 整列就会被顶宽，然后**所有**子元素跟着变宽、整页出现横向滚动条。
+   *
+   * 实测：手机竖屏（374px）下，渠道下拉里的「本地演示（假模型，不需要 Key）」
+   * 把列撑到 481px —— 状态条、板面内容、工具栏全都溢出到屏幕外，
+   * 工具栏末尾的按钮被挤成竖排文字还截断了。
+   *
+   * `minmax(0, 1fr)` 把下限钉成 0，子元素就只能**各自**去处理溢出了
+   * （该省略的省略、该换行的换行），不会再互相连累。
+   */
+  grid-template-columns: minmax(0, 1fr);
+
   height: 100dvh; /* dvh 能正确处理手机地址栏收起/展开 */
 }
 
@@ -309,12 +327,24 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+
+  /**
+   * ⚠️ 两层都要能折行。
+   *
+   * 工具栏本身是 `flex-wrap: wrap`，但**组内部原来不折** ——
+   * 于是一组里有 5 个按钮时，它的 min-content 就是那 5 个按钮的宽度和，
+   * flex 子项又不会缩到 min-content 以下，整组就顶出去了。
+   *
+   * 手机竖屏实测：这一组（渠道下拉 + 渠道/记录/数据/资料/板）min-content 是 457px，
+   * 而视口只有 374px —— 按钮被挤成竖排文字还截断。
+   */
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .btn {
   min-height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
+  padding: 0 12px;  border: 1px solid var(--line);
   border-radius: 9px;
   background: #fff;
   color: var(--ink);

@@ -338,7 +338,8 @@ function channelOptions(): { value: string; label: string }[] {
     const model = demo.getModel();
     options.push({
       value: `${DEMO_CHANNEL_ID}::${model?.id ?? 'demo'}`,
-      label: '本地演示（假模型，不需要 Key）',
+      // 手机竖屏下拉里标签别写太长（详细说明在设置面板里）
+      label: '本地演示（不用 Key）',
     });
   }
 

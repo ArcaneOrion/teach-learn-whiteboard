@@ -128,6 +128,36 @@ pnpm sync-server --port 9000 --token 你的口令  # 换端口 / 加口令（口
 于是浏览器拿到的是「编辑做到一半」的版本 —— 一半新一半旧，报错信息完全对不上源码。
 **这时候刷新页面没用，必须重启 dev server。**
 
+### 验窄屏布局（手机才是主要设备）
+
+单元测试**测不出布局问题**（jsdom 不做排版）。最省事的办法是**在浏览器控制台里塞一个 390px 宽的 iframe**：
+
+```js
+const o = document.createElement('div');
+o.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#eef1f5;padding:10px';
+const f = document.createElement('iframe');
+f.src = location.origin + '/';
+f.style.cssText = 'width:390px;height:780px;border:1px solid #ccc;background:#fff';
+o.append(f); document.body.append(o);
+```
+
+然后查有没有横向溢出：
+
+```js
+const d = f.contentDocument;
+console.log(d.documentElement.scrollWidth, d.documentElement.clientWidth);
+```
+
+两个数不一样就是溢出了 —— 再用这个找出是谁撑宽的：
+
+```js
+[...d.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > d.documentElement.clientWidth + 1)
+  .map(e => e.tagName + (e.id ? '#' + e.id : '') + ' ' + Math.round(e.getBoundingClientRect().width));
+```
+
+> **必须看一眼截图，不能只看数字。** 至今抓到的几个最麻烦的 bug（截图丢笔迹、
+> 存储退回内存、工具栏被挤成竖排），读数全都是"正常"的。
+
 ---
 
 ## 文档
