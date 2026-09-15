@@ -48,7 +48,8 @@ import { deriveSessionHint } from './core/history';
 import { chunkText, searchMaterials, type MaterialCandidate } from './core/materials';
 import { extractPdfText, looksLikePdf, pageOfOffset } from './ui/pdfText';
 import { backupFileName, countCredentials, parseBackup } from './core/backup';
-import { backupToBlob, downloadBlob, exportBackup, importBackup } from './store/transfer';
+import { backupToBlob, exportBackup, importBackup } from './store/transfer';
+import { saveBlob } from './platform/saveFile';
 import { reconcileBoards, pickStartupBoard, countContentEvents } from './store/boards';
 import { HttpTransport } from './sync/httpTransport';
 import { runSync, type SyncResult } from './sync/syncEngine';
@@ -1136,10 +1137,17 @@ function makeDataPanel(theStore: Store): DataPanel {
 
     onExport: async () => {
       const backup = await exportBackup(theStore, APP_VERSION, Date.now());
-      downloadBlob(backupToBlob(backup), backupFileName(backup.exportedAt));
+      const hint = await saveBlob(backupToBlob(backup), backupFileName(backup.exportedAt));
+
+      if (hint === null) {
+        setStatus('已取消导出。');
+        return null;
+      }
+
       setStatus(
         `已导出备份：${backup.data.events.length} 条事件 · ${backup.data.attachments.length} 张截图`,
       );
+      return hint;
     },
 
     parse: (text) => parseBackup(text),
@@ -1199,10 +1207,12 @@ function makeDataPanel(theStore: Store): DataPanel {
 
       const safeTitle = boardRecord.title.replace(/[/\\:*?"<>|]/g, '_').slice(0, 40);
       const stamp = new Date().toLocaleDateString('sv-SE'); // sv-SE 刚好是 YYYY-MM-DD
-      downloadBlob(shot.blob, `${safeTitle}-${stamp}.png`);
+      const hint = await saveBlob(shot.blob, `${safeTitle}-${stamp}.png`);
+
+      if (hint === null) return '已取消，没有保存。';
 
       const kb = Math.round(shot.blob.size / 1024);
-      return `已存成图片：${shot.width}×${shot.height}，${kb} KB。去「下载」里找它。`;
+      return `已存成图片：${shot.width}×${shot.height}，${kb} KB。${hint}`;
     },
 
     // ── 同步 ──────────────────────────────────────────────────

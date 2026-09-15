@@ -38,8 +38,8 @@ export interface SyncConfig {
 
 export interface DataPanelCallbacks {
   stats: () => Promise<DataStats>;
-  /** 导出（由调用方触发下载） */
-  onExport: () => Promise<void>;
+  /** 导出备份，返回一句「文件去哪了」给用户看（用户取消则返回 null） */
+  onExport: () => Promise<string | null>;
   /** 解析备份文本（失败要抛错 —— 消息是给人看的） */
   parse: (text: string) => BackupFile;
   /** 真的导入 */
@@ -102,8 +102,12 @@ export class DataPanel {
 
     this.exportBtn.addEventListener('click', () => {
       void this.run(this.exportBtn, async () => {
-        await this.callbacks.onExport();
-        this.setNote('已导出。把文件存到你找得回来的地方（网盘、电脑都行）。');
+        const hint = await this.callbacks.onExport();
+        this.setNote(
+          hint === null
+            ? '已取消，没有导出。'
+            : `已导出。${hint}把文件存到你找得回来的地方（网盘、电脑都行）。`,
+        );
       });
     });
 

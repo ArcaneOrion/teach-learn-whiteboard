@@ -108,18 +108,9 @@ export function backupToBlob(backup: BackupFile): Blob {
   return new Blob([JSON.stringify(backup)], { type: 'application/json' });
 }
 
-/** 触发浏览器下载 */
-export function downloadBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  document.body.append(a);
-  a.click();
-  a.remove();
-  // 立刻 revoke 会让某些浏览器来不及下载，延后一点
-  window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
-}
+// 「怎么把文件交到用户手上」不在这里 —— 它在 platform/saveFile.ts。
+// 桌面浏览器是 <a download>，安卓 WebView 里那条路是死的（必须走原生的分享面板），
+// 这个平台差异不该混进存储层。
 
 /** 读一个用户选的文件为文本 */
 export function readFileAsText(file: File): Promise<string> {
