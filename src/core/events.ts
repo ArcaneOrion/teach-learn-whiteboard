@@ -63,16 +63,47 @@ export interface EventLogOptions {
 export class EventLog {
   private readonly events: BoardEvent[] = [];
   private seq = 0;
+  private readonly listeners = new Set<(event: BoardEvent) => void>();
 
   private readonly now: () => number;
 
-  constructor(private readonly options: EventLogOptions) {
+  /**
+   * @param existing 已经持久化过的事件（从存储里读回来的）。
+   *                 传进来之后，seq 会接着最大值往下走 —— 这样重启 App 之后
+   *                 新事件的序号不会和历史事件撞车。
+   */
+  constructor(
+    private readonly options: EventLogOptions,
+    existing: readonly BoardEvent[] = [],
+  ) {
     this.now = options.now ?? (() => Date.now());
+
+    for (const e of existing) {
+      if (e.boardId !== options.boardId) continue;
+      this.events.push(e);
+      if (e.seq > this.seq) this.seq = e.seq;
+    }
+    this.events.sort((a, b) => a.seq - b.seq);
   }
 
   /** 全部事件（只读） */
   get all(): readonly BoardEvent[] {
     return this.events;
+  }
+
+  /**
+   * 订阅「有新事件」。
+   *
+   * 存储层用它来落盘。放在这里而不是让 EventLog 直接依赖存储，是为了让 core/
+   * 保持纯净 —— 它不知道自己会被存到哪，也不需要知道。
+   *
+   * @returns 取消订阅的函数
+   */
+  onAppend(fn: (event: BoardEvent) => void): () => void {
+    this.listeners.add(fn);
+    return () => {
+      this.listeners.delete(fn);
+    };
   }
 
   private append<K extends EventKind>(actor: Actor, kind: K, payload: EventPayload<K>): EventOf<K> {
@@ -90,6 +121,7 @@ export class EventLog {
     };
     const event = make(envelope, kind, payload);
     this.events.push(event);
+    for (const fn of this.listeners) fn(event);
     return event;
   }
 

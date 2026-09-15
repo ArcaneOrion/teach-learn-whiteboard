@@ -216,9 +216,19 @@ body {
   font-size: 1.12em;
 }
 
+/*
+ * ⚠️ 千万不要在这里写 `display: block`。
+ *
+ * 踩过的坑：<math display="block"> 的「块级」是 **MathML 的块级**，浏览器的
+ * 默认样式表给它设的是 `display: block math`。一旦我们覆盖成普通 CSS 的
+ * `display: block`，它就退化成一个普通 HTML 块容器 —— 公式的每个子元素
+ * （a、x²、+、b…）各占一行，整条公式竖着堆成一列。
+ *
+ * 而且它**不会报任何错**，只是画得不对，很容易被忽略。
+ * 这里只调间距和居中，display 交给浏览器默认值。
+ */
 .block math[display="block"] {
-  display: block;
-  margin: 12px 0;
+  margin: 14px 0;
   text-align: center;
 }
 
