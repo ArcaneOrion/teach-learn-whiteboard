@@ -5,7 +5,7 @@
 
 > **当前状态：v1 功能完整、可运行、有 326 个单元测试。**
 > M0~M7 八个里程碑全部实现并验证过（见下方「实现进度」）。
-> **还没做的一件事：打包成 APK**（本机缺 JDK / Android SDK，见 `docs/安卓构建环境.md`）。
+> **还没做的一件事：打包成 APK**（开发机上没装 JDK / Android SDK）。
 
 ---
 
@@ -167,7 +167,6 @@ console.log(d.documentElement.scrollWidth, d.documentElement.clientWidth);
 | [`docs/产品设计文档.md`](docs/产品设计文档.md) | 做什么、给谁用、核心循环、界面、会话与检索、权限、路线图、**明确不做什么** | 想到新功能时先回来看 |
 | [`docs/技术开发文档.md`](docs/技术开发文档.md) | 用什么技术、为什么、架构、数据模型、风险清单、里程碑 | 动手写代码前必看 |
 | [`docs/Git使用约定.md`](docs/Git使用约定.md) | git 五条铁律 + 只需记住的 6 个命令 + 出事了怎么回滚 | **动代码前先读一遍**（10 分钟） |
-| [`docs/安卓构建环境.md`](docs/安卓构建环境.md) | 本机缺 JDK / Android SDK，怎么补；以及**不装工具链就先在手机上试手感**的办法 | 要打包 APK 时看 |
 
 > ⚠️ 两份设计文档写在动手之前，里面有些细节**已经被实现推翻**
 > （比如存储从 SQLite 换成了 IndexedDB，技术文档 §11.0 有说明）。
@@ -204,7 +203,7 @@ console.log(d.documentElement.scrollWidth, d.documentElement.clientWidth);
 
 | | 说明 |
 |---|---|
-| **打包 APK** | 本机缺 JDK / Android SDK。见 `docs/安卓构建环境.md` |
+| **打包 APK** | 开发机上没装 JDK / Android SDK。装好之后 `npx cap add android` 即可 —— Capacitor 已经在技术文档里定好了，代码不用改 |
 | **用真实 API Key 验证** | M2 的真实渠道调用、M3「模型确实看懂了圈画」、M4 截图图说 —— 都需要一个真 Key |
 | 内置免费渠道 | 产品规划里有，但**没有验证过可用的公开端点**，宁可留空也不塞一个连不上的 |
 | 扫描版 PDF | 整页是图片，得走视觉识别（能力 M3 已有，缺流程） |

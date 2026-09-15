@@ -65,6 +65,11 @@ coverage/
 sync-data.json
 sync-data*.json
 
+# ── ★ 与这台机器绑定的工作笔记，不进公开仓库 ──
+#     写的是本机怎么补 JDK / Android SDK、本机家目录路径这些，
+#     对别人没用，公开出去只是噪音。文件留在本地，只是不跟踪。
+docs/安卓构建环境.md
+
 # ── 本地临时文件 ──
 tmp/
 temp/
