@@ -45,6 +45,9 @@ export interface DataPanelCallbacks {
   /** 清空全部数据 */
   onReset: () => Promise<void>;
 
+  /** 把当前这块板存成图片，返回一句给用户看的说明 */
+  onExportImage: () => Promise<string>;
+
   // ── 同步 ────────────────────────────────────────────────────
   loadSyncConfig: () => Promise<SyncConfig>;
   saveSyncConfig: (config: SyncConfig) => Promise<void>;
@@ -124,6 +127,16 @@ export class DataPanel {
       });
     });
 
+    // ── 存成图片 ──────────────────────────────────────────────
+    this.exportImageNote = must<HTMLElement>(this.dialog, '#export-image-note');
+    const exportImageBtn = must<HTMLButtonElement>(this.dialog, '#export-image');
+    exportImageBtn.addEventListener('click', () => {
+      void this.run(exportImageBtn, async () => {
+        this.exportImageNote.textContent = '正在生成…';
+        this.exportImageNote.textContent = await this.callbacks.onExportImage();
+      });
+    });
+
     // ── 同步 ──────────────────────────────────────────────────
     this.syncUrl = must<HTMLInputElement>(this.dialog, '#sync-url');
     this.syncToken = must<HTMLInputElement>(this.dialog, '#sync-token');
@@ -157,6 +170,7 @@ export class DataPanel {
   private readonly syncToken: HTMLInputElement;
   private readonly syncStatus: HTMLElement;
   private readonly syncNowBtn: HTMLButtonElement;
+  private readonly exportImageNote: HTMLElement;
 
   private readSyncForm(): SyncConfig {
     return { baseUrl: this.syncUrl.value.trim(), token: this.syncToken.value };
@@ -171,6 +185,7 @@ export class DataPanel {
     this.syncUrl.value = config.baseUrl;
     this.syncToken.value = config.token;
     this.setSyncStatus(config.baseUrl === '' ? '还没配同步 —— 不配也不影响其他功能。' : '');
+    this.exportImageNote.textContent = '';
 
     await this.refreshStats();
     this.disarm();

@@ -199,6 +199,21 @@
         备份文件里<strong>不含 API Key</strong> —— Key 只留在这台设备上，恢复后要重新填一次。
       </p>
 
+      <!-- 导出图片：板上的东西只存在 App 里，用户需要能把它拿出来 -->
+      <div class="data__sync">
+        <h3>存成图片</h3>
+        <p class="settings__foot">
+          把<strong>当前这块板</strong>存成一张 PNG —— 内容和你画的笔迹都在里面，
+          可以直接发给别人、贴到笔记软件里、或者打印。
+        </p>
+        <div class="settings__form">
+          <div class="confirm__actions">
+            <button class="btn btn--primary" id="export-image" type="button">存成图片（PNG）</button>
+          </div>
+          <p class="settings__foot" id="export-image-note"></p>
+        </div>
+      </div>
+
       <!-- 同步：在同一台自己的机器上跑 pnpm sync-server，多台设备就能对上 -->
       <div class="data__sync">
         <h3>同步</h3>

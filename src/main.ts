@@ -1070,6 +1070,51 @@ function makeDataPanel(theStore: Store): DataPanel {
       location.reload();
     },
 
+    /**
+     * 把当前这块板存成一张 PNG。
+     *
+     * 走的是和「让 AI 看」同一套 rasterize —— 那条路已经踩平了三个坑
+     * （CSS 要 CDATA、canvas 要换成位图、生产构建里 CSS 是外链），
+     * 没必要再写第二套截图逻辑。
+     *
+     * 唯一不一样的是**拍多高**：板面底部有 45vh 的留白（给用户在最下面继续写字用），
+     * 全拍下来图的下半张全是空白。但**不能去改板面布局**来裁掉它 ——
+     * 用户完全可能就在那片留白上写了东西，那样就丢了。
+     * 所以这里只是算一个高度告诉截图，板面一动不动。
+     */
+    onExportImage: async () => {
+      if (boardRecord === null) return '板还没准备好。';
+
+      const boardTop = boardEl.getBoundingClientRect().top;
+
+      // 内容和笔迹的**真实下边界**（取两者更靠下的那个）
+      let bottom = 0;
+      for (const child of contentEl.children) {
+        bottom = Math.max(bottom, child.getBoundingClientRect().bottom - boardTop);
+      }
+      for (const stroke of board.strokes) {
+        for (const point of stroke.points) bottom = Math.max(bottom, point.y);
+      }
+      // 留一点边距，别让最后一行贴着图的边缘
+      const height = Math.max(200, Math.ceil(bottom + 40));
+
+      const shot = await rasterizeBoard({
+        board: boardEl,
+        viewport: scroller,
+        full: true,
+        height,
+        // 导出可以比"给模型看"清晰得多 —— 用户要存下来、要能看清小字
+        maxPixels: 12_000_000,
+      });
+
+      const safeTitle = boardRecord.title.replace(/[/\\:*?"<>|]/g, '_').slice(0, 40);
+      const stamp = new Date().toLocaleDateString('sv-SE'); // sv-SE 刚好是 YYYY-MM-DD
+      downloadBlob(shot.blob, `${safeTitle}-${stamp}.png`);
+
+      const kb = Math.round(shot.blob.size / 1024);
+      return `已存成图片：${shot.width}×${shot.height}，${kb} KB。去「下载」里找它。`;
+    },
+
     // ── 同步 ──────────────────────────────────────────────────
     loadSyncConfig: async () => {
       const saved = await theStore.getMeta<{ baseUrl: string; token: string }>(SYNC_CONFIG_KEY);
