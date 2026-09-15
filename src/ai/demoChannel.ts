@@ -38,7 +38,14 @@ export interface DemoChannel {
 }
 
 export function createDemoChannel(): DemoChannel {
-  const faux = fauxProvider({});
+  /**
+   * 让假模型**按真实速度出字**，而不是一瞬间全部吐完。
+   *
+   * 两个理由：
+   *   ① 真模型是流式的，演示也该是 —— 否则用户对"它工作时是什么样"没有概念
+   *   ② 瞬间出完的话，「停止」按钮根本没有机会被按到，那个功能也就没法验
+   */
+  const faux = fauxProvider({ tokensPerSecond: 80 });
 
   return {
     provider: faux.provider,

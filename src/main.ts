@@ -130,6 +130,15 @@ conversation.tools = boardTools;
 
 let running = false;
 
+/**
+ * 当前这一轮的取消开关。
+ *
+ * 为什么要有它：模型可能很慢、卡住，或者开始胡言乱语 ——
+ * 那时候用户**必须能停下来**，否则只能干等或者关掉 App。
+ * `runTurn` 一直支持 `AbortSignal`，只是之前从来没接上。
+ */
+let abortController: AbortController | null = null;
+
 /** 手写输入的句柄。长按要弹反馈时，得能把正在画的那一笔撤掉 */
 let inkHandle: InkInputHandle | null = null;
 
@@ -368,19 +377,38 @@ function activeModel(): Model<Api> | null {
 }
 
 function updateSendEnabled(): void {
+  // 运行中：按钮变成「停止」，而且**必须可点** —— 不然模型卡住时用户毫无办法
+  if (running) {
+    sendBtn.disabled = abortController === null;
+    sendBtn.title = '停下这一轮';
+    sayInput.disabled = true;
+    lookBtn.disabled = true;
+    return;
+  }
+
   // 只要「有话说」或者「有截图」就能发 —— 用户可能只是画了个圈，不想打字
   const canSend =
-    !running &&
-    activeModel() !== null &&
-    (sayInput.value.trim() !== '' || pendingSnapshot !== null);
+    activeModel() !== null && (sayInput.value.trim() !== '' || pendingSnapshot !== null);
   sendBtn.disabled = !canSend;
 
   // 灰着的按钮得说明为什么灰着 —— 否则用户只会觉得"这 App 坏了"
-  sendBtn.title =
-    activeModel() !== null ? '' : '还不能发：先去「⚙️ 渠道」配一个模型渠道';
+  sendBtn.title = activeModel() !== null ? '' : '还不能发：先去「⚙️ 渠道」配一个模型渠道';
 
-  sayInput.disabled = running;
-  lookBtn.disabled = running;
+  sayInput.disabled = false;
+  lookBtn.disabled = false;
+}
+
+/**
+ * 切换「正在跑一轮」的状态。
+ *
+ * 按钮文案要跟着变 —— 同一个按钮在两种状态下做两件事，
+ * 光靠 disable 是表达不出来的（用户会以为它只是还不能点）。
+ */
+function setRunning(next: boolean): void {
+  running = next;
+  sendBtn.textContent = next ? '⏹ 停止' : '发送';
+  sendBtn.classList.toggle('btn--danger', next);
+  updateSendEnabled();
 }
 
 /** 设置/清空「待发送的截图」 */
@@ -451,6 +479,27 @@ function asString(v: unknown): string | undefined {
 }
 
 /**
+ * 状态条上「它正在干什么」那句话。
+ *
+ * ⚠️ 别写成「是 board_write 就说写板、否则说出选项」那种二分 ——
+ * 加了 search_materials 之后，查资料会被说成"正在出选项"。
+ * 每加一个工具就得回来补一句，所以这里的 default 分支要有意义
+ * （宁可显示工具名，也不要显示一句错的）。
+ */
+function describeTool(name: string): string {
+  switch (name) {
+    case TOOL_BOARD_WRITE:
+      return '正在写板…';
+    case TOOL_ASK_USER:
+      return '正在出选项…';
+    case TOOL_SEARCH_MATERIALS:
+      return '正在查你的资料…';
+    default:
+      return `正在用 ${name}…`;
+  }
+}
+
+/**
  * 执行模型发来的工具调用。
  *
  * ⚠️ 参数要**自己校验**：模型可能少给字段、给错类型。
@@ -460,7 +509,6 @@ function asString(v: unknown): string | undefined {
 async function executeTool(name: string, args: Record<string, unknown>): Promise<ToolOutcome> {
   const theLog = log;
   if (theLog === null) return { result: '板还没准备好', isError: true };
-
   if (name === TOOL_SEARCH_MATERIALS) {
     const query = asString(args['query']);
     if (query === undefined || query.trim() === '') {
@@ -601,7 +649,9 @@ async function sendTurn(rawText: string, snapshot: PendingSnapshot | null = null
   if (text === '' && snapshot === null) return;
 
   running = true;
-  updateSendEnabled();
+  abortController = new AbortController();
+  const signal = abortController.signal;
+  setRunning(true);
   setStatus(snapshot === null ? '正在思考…' : '正在把截图发给模型…');
 
   const textForModel =
@@ -644,8 +694,8 @@ async function sendTurn(rawText: string, snapshot: PendingSnapshot | null = null
   } catch (err) {
     console.error('准备截图失败：', err);
     setStatus(`出错：${explainError(err, runtime())}`);
-    running = false;
-    updateSendEnabled();
+    abortController = null;
+    setRunning(false);
     return;
   }
 
@@ -654,8 +704,8 @@ async function sendTurn(rawText: string, snapshot: PendingSnapshot | null = null
 
   const models = registry?.models;
   if (models === undefined) {
-    running = false;
-    updateSendEnabled();
+    abortController = null;
+    setRunning(false);
     return;
   }
 
@@ -665,8 +715,11 @@ async function sendTurn(rawText: string, snapshot: PendingSnapshot | null = null
       model,
       context: conversation,
       execute: executeTool,
+      signal,
       onToolCall: (name) => {
-        setStatus(name === TOOL_BOARD_WRITE ? '正在写板…' : '正在出选项…');
+        // ⚠️ 别用「不是 board_write 就是出选项」这种二分 ——
+        //    加了 search_materials 之后，查资料也会被说成"正在出选项"
+        setStatus(describeTool(name));
       },
     });
 
@@ -676,11 +729,16 @@ async function sendTurn(rawText: string, snapshot: PendingSnapshot | null = null
       setStatus(`就绪 · 本轮 ${result.toolCalls} 次工具调用`);
     }
   } catch (err) {
-    console.error('对话失败：', err);
-    setStatus(`出错：${explainError(err, runtime())}`);
+    // 用户自己按的停止不算"出错" —— 别用红字吓他
+    if (signal.aborted) {
+      setStatus('已停下。板上已经写上去的内容会留着。');
+    } else {
+      console.error('对话失败：', err);
+      setStatus(`出错：${explainError(err, runtime())}`);
+    }
   } finally {
-    running = false;
-    updateSendEnabled();
+    abortController = null;
+    setRunning(false);
   }
 }
 
@@ -730,6 +788,8 @@ sayInput.addEventListener('input', () => {
 
 /** 统一走这里：取出文字和待发送的截图，清空界面，然后发出去 */
 function doSend(): void {
+  // 一轮还没跑完就别再发 —— 否则输入条里的话会被清掉，却什么也没做
+  if (running) return;
   const text = sayInput.value;
   const snapshot = pendingSnapshot;
   sayInput.value = '';
@@ -738,7 +798,15 @@ function doSend(): void {
   void sendTurn(text, snapshot);
 }
 
-sendBtn.addEventListener('click', doSend);
+sendBtn.addEventListener('click', () => {
+  // 同一个按钮两个作用：没在跑就发送，在跑就停下
+  if (running) {
+    abortController?.abort();
+    setStatus('正在停下…');
+    return;
+  }
+  doSend();
+});
 
 lookBtn.addEventListener('click', () => {
   void captureSnapshot();
