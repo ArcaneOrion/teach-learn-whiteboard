@@ -374,6 +374,11 @@ function updateSendEnabled(): void {
     activeModel() !== null &&
     (sayInput.value.trim() !== '' || pendingSnapshot !== null);
   sendBtn.disabled = !canSend;
+
+  // 灰着的按钮得说明为什么灰着 —— 否则用户只会觉得"这 App 坏了"
+  sendBtn.title =
+    activeModel() !== null ? '' : '还不能发：先去「⚙️ 渠道」配一个模型渠道';
+
   sayInput.disabled = running;
   lookBtn.disabled = running;
 }
@@ -1070,6 +1075,36 @@ function locateOnBoard(doc: SearchDoc): void {
   window.setTimeout(() => target.classList.remove('is-located'), 3000);
 }
 
+/** 已经给用户提示过「要配渠道」了吗 */
+const ONBOARDED_KEY = 'channelOnboardingShown';
+
+/**
+ * 首次使用引导：一个渠道都没有时，把用户送到渠道设置面板前。
+ *
+ * ## 为什么这个必须做
+ *
+ * 生产构建里**一个内置渠道都没有**（演示渠道只在开发模式注册）。
+ * 于是新装的应用：发送按钮是灰的、AI 完全不工作，而用户完全不知道为什么 ——
+ * 这正是"装上去打不开、不知道从哪开始"的那类第一印象。
+ *
+ * 只提示一次，之后不再打扰（用户可能就是想先配好再说，或者根本不打算配）。
+ */
+async function guideChannelSetup(): Promise<void> {
+  const theStore = store;
+  if (theStore === null || settingsPanel === null) return;
+  if (channelOptions().length > 0) return;
+
+  const alreadyShown = await theStore.getMeta<boolean>(ONBOARDED_KEY);
+  if (alreadyShown === true) {
+    setStatus('还没有可用的模型渠道 —— 点「⚙️ 渠道」配一个，AI 才能写板');
+    return;
+  }
+  await theStore.setMeta(ONBOARDED_KEY, true);
+
+  setStatus('先配一个模型渠道 —— 不然 AI 没法写板。白板、手写、资料这些照常用。');
+  await settingsPanel.open();
+}
+
 openSettingsBtn.addEventListener('click', () => {
   void settingsPanel?.open();
 });
@@ -1501,6 +1536,9 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
   setStatus(
     `${warning}M2 · ${restored}${isNewSession ? ' · 新会话' : ' · 续上次会话'}`,
   );
+
+  // 一个渠道都没有的话，把用户送到渠道设置面前（只提示一次）
+  await guideChannelSetup();
 }
 
 // ── 开发期工具 ────────────────────────────────────────────────

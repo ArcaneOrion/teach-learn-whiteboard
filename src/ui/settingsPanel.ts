@@ -70,7 +70,8 @@ export class SettingsPanel {
     if (channels.length === 0) {
       const empty = document.createElement('p');
       empty.className = 'empty';
-      empty.textContent = '还没有配置任何渠道。下面添加一个，或者用开发模式自带的演示渠道。';
+      // ⚠️ 别在这里提"开发模式的演示渠道" —— 生产构建里它根本不存在，那句话会说错话
+      empty.textContent = '还没有配置任何渠道。在下面添加一个 —— 任何 OpenAI 兼容的端点都行。';
       this.list.append(empty);
       return;
     }
