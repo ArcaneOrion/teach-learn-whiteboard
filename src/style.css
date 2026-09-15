@@ -643,6 +643,37 @@ body {
   color: #047857;
 }
 
+/* ── 空板上的引导（不是数据，只在板完全空着时出现）──────────── */
+
+.board-hint {
+  max-width: 460px;
+  margin: 56px auto 0;
+  padding: 0 8px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.board-hint__title {
+  margin: 0 0 14px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #8a929c;
+}
+
+.board-hint__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13.5px;
+  line-height: 2;
+}
+
+.board-hint__list li::before {
+  content: '·';
+  margin-right: 8px;
+  color: #c3cad3;
+}
+
 /* ── 板列表 ─────────────────────────────────────────────────── */
 
 .board-row {

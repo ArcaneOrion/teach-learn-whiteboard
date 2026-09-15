@@ -37,6 +37,8 @@ export interface DemoChannel {
   arm: (userText: string) => void;
 }
 
+let demoSeq = 0;
+
 export function createDemoChannel(): DemoChannel {
   /**
    * 让假模型**按真实速度出字**，而不是一瞬间全部吐完。
@@ -52,7 +54,9 @@ export function createDemoChannel(): DemoChannel {
     getModel: () => faux.getModel(),
 
     arm(userText: string) {
-      const region = `演示-${Date.now().toString(36)}`;
+      // region 会显示在界面上（板面块的标识、搜索结果里），所以用可读的名字，别用机器 id
+      demoSeq += 1;
+      const region = `讲解 ${String(demoSeq)}`;
       const safe = escapeHtml(userText.slice(0, 80));
       const cleaned = userText.replace(/\s+/g, '').slice(0, 30);
 

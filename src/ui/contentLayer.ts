@@ -40,7 +40,13 @@ export class ContentLayer {
    *
    * @param feedback 被评价的事件 id → 表态。有表态的块右侧会挂一个小徽标
    */
-  render(blocks: readonly BoardBlock[], feedback: Record<string, FeedbackRating> = {}): void {
+  render(
+    blocks: readonly BoardBlock[],
+    feedback: Record<string, FeedbackRating> = {},
+    options: { showHint?: boolean } = {},
+  ): void {
+    this.setHint(options.showHint === true && blocks.length === 0);
+
     const plan = planRender(blocks, this.html);
 
     // 1) 删掉消失的块
@@ -98,6 +104,54 @@ export class ContentLayer {
     }
 
     this.root.dataset['blockCount'] = String(plan.order.length);
+  }
+
+  /**
+   * 空板上的引导。
+   *
+   * ## 为什么需要它
+   *
+   * 「共写画布」是一个**不常见的交互模型** —— 板就是唯一界面，AI 的话直接写进板里，
+   * 而不是「聊天框 + 白板」两栏。一个全新用户打开 App 看到的是一块**完全空白**的板，
+   * 没有任何东西告诉他：可以用手写、可以打字让 AI 写到**这里**、圈住它写的东西它看得见。
+   *
+   * ## 为什么不做成"写进板里的第一块"
+   *
+   * 那样会**污染用户的板** —— 他想要一块干净的板，却先多了一段系统写的内容，
+   * 而且还会进事件日志、被同步、被搜到。所以它是**渲染层的东西，不是数据**。
+   *
+   * 它只在这块板**一个字都没有、一笔都没画**的时候出现，一旦有内容就消失。
+   */
+  private setHint(show: boolean): void {
+    const existing = this.root.querySelector<HTMLElement>('.board-hint');
+
+    if (!show) {
+      existing?.remove();
+      return;
+    }
+    if (existing !== null) return;
+
+    const hint = document.createElement('div');
+    hint.className = 'board-hint';
+
+    const title = document.createElement('p');
+    title.className = 'board-hint__title';
+    title.textContent = '这块板是你的';
+
+    const list = document.createElement('ul');
+    list.className = 'board-hint__list';
+    for (const line of [
+      '直接用手指或笔在上面写、画、圈',
+      '也可以在下面打字，让 AI 把讲解写到这块板上',
+      '圈住它写的东西，点「👁 让 AI 看」—— 它就知道你哪里没懂',
+    ]) {
+      const li = document.createElement('li');
+      li.textContent = line;
+      list.append(li);
+    }
+
+    hint.append(title, list);
+    this.root.append(hint);
   }
 
   /** 当前内容层里有几块（调试/测试用） */

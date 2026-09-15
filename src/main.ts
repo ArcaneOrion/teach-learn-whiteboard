@@ -44,6 +44,7 @@ import { htmlToText } from './ui/htmlText';
 import { blobToBase64, blobToDataUrl } from './base64';
 import { rasterizeBoard } from './ui/rasterize';
 import { buildIndex, dedupeByRegion, type SearchDoc } from './core/search';
+import { deriveSessionHint } from './core/history';
 import { chunkText, searchMaterials, type MaterialCandidate } from './core/materials';
 import { extractPdfText, looksLikePdf, pageOfOffset } from './ui/pdfText';
 import { backupFileName, countCredentials, parseBackup } from './core/backup';
@@ -169,7 +170,17 @@ const content = new ContentLayer(contentEl);
 function recompose(): void {
   if (log === null) return;
   board = composeBoard(boardId, log.all);
-  content.render(board.blocks, board.feedback);
+
+  /**
+   * 空板引导只在**一个字都没有、一笔都没画**的时候出现。
+   *
+   * 只判断"没有板面块"是不够的：用户可能先手写了一段，
+   * 那时候引导还杵在那儿、和笔迹叠在一起，很碍事。
+   */
+  content.render(board.blocks, board.feedback, {
+    showHint: board.blocks.length === 0 && board.strokes.length === 0,
+  });
+
   paintChoices();
   scheduleHud();
 }
@@ -1596,7 +1607,7 @@ function seedConversation(theLog: EventLog): void {
 }
 
 async function boot(): Promise<void> {
-  setStatus('M2 · 正在读取…');
+  setStatus('正在读取…');
 
   await openStore();
   const s = store;
@@ -1730,10 +1741,26 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
   const theStore = store;
   if (theStore !== null) {
     historyPanel = new HistoryPanel(theStore, {
-      refresh: async () => ({
-        index: buildSearchIndex(),
-        sessions: await theStore.listSessions(),
-      }),
+      refresh: async () => {
+        const events = await theStore.allEvents();
+        // 每一次会话「学了什么」= 用户自己说的第一句话（见 core/history.ts）
+        const bySession = new Map<string, BoardEvent[]>();
+        for (const e of events) {
+          const list = bySession.get(e.sessionId);
+          if (list === undefined) bySession.set(e.sessionId, [e]);
+          else list.push(e);
+        }
+        const sessionHints = new Map<string, string>();
+        for (const [sessionId, list] of bySession) {
+          const hint = deriveSessionHint(list);
+          if (hint !== null) sessionHints.set(sessionId, hint);
+        }
+        return {
+          index: buildSearchIndex(),
+          sessions: await theStore.listSessions(),
+          sessionHints,
+        };
+      },
       locate: locateOnBoard,
     });
     dataPanel = makeDataPanel(theStore);
@@ -1754,12 +1781,20 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
   updateSendEnabled();
   paintHud();
 
-  const restored = loadedCount > 0 ? `读回 ${loadedCount} 条历史事件` : '新板';
   // 退回内存存储是**会丢数据**的状态（刷新就没了），所以放在状态条最前面说
   const warning = persistent ? '' : '⚠ 本地存储打不开，这次的数据不会保存 · ';
-  setStatus(
-    `${warning}M2 · ${restored}${isNewSession ? ' · 新会话' : ' · 续上次会话'}`,
-  );
+
+  /**
+   * ⚠️ 状态条是**给用户看的**，别把开发期的代号漏进来。
+   *
+   * 原来这里写着「M2 · 读回 6 条历史事件 · 续上次会话」——
+   * 「M2」是里程碑编号，用户完全不知道那是什么；
+   * 「事件」也是实现术语。改成说人话：我在哪块板上、有没有东西。
+   */
+  const where = boardRecord === null ? '' : `「${boardRecord.title}」· `;
+  const howMuch = loadedCount > 0 ? `${String(loadedCount)} 条记录` : '还是空的';
+  const when = isNewSession ? '新的一次学习' : '接着上次';
+  setStatus(`${warning}${where}${howMuch} · ${when}`);
 
   // 一个渠道都没有的话，把用户送到渠道设置面前（只提示一次）
   await guideChannelSetup();

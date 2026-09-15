@@ -19,7 +19,12 @@ import { snippetAround } from './htmlText';
 
 export interface HistoryPanelCallbacks {
   /** 面板打开时重新取一遍数据 */
-  refresh: () => Promise<{ index: readonly SearchDoc[]; sessions: readonly SessionRecord[] }>;
+  refresh: () => Promise<{
+    index: readonly SearchDoc[];
+    sessions: readonly SessionRecord[];
+    /** 会话 id → 「这次学了什么」（用户自己说的第一句话） */
+    sessionHints: ReadonlyMap<string, string>;
+  }>;
   /** 点了某条搜索结果：把板面滚到对应的块上去 */
   locate: (doc: SearchDoc) => void;
 }
@@ -45,6 +50,8 @@ export class HistoryPanel {
 
   private index: readonly SearchDoc[] = [];
   private sessions: readonly SessionRecord[] = [];
+  /** 会话 id → 「这次学了什么」 */
+  private hints: ReadonlyMap<string, string> = new Map();
   /** 已加载过的截图缩略图缓存，避免每次搜索都去读一遍数据库 */
   private readonly thumbs = new Map<string, string>();
 
@@ -70,6 +77,7 @@ export class HistoryPanel {
     const data = await this.callbacks.refresh();
     this.index = data.index;
     this.sessions = data.sessions;
+    this.hints = data.sessionHints;
     this.input.value = '';
     this.render();
     this.dialog.showModal();
@@ -86,6 +94,7 @@ export class HistoryPanel {
     const data = await this.callbacks.refresh();
     this.index = data.index;
     this.sessions = data.sessions;
+    this.hints = data.sessionHints;
     if (this.dialog.open) this.render();
   }
 
@@ -222,7 +231,14 @@ export class HistoryPanel {
 
         const name = document.createElement('div');
         name.className = 'session__name';
-        name.textContent = sessionTitle(s);
+        /**
+         * 标题优先用「用户自己说的第一句话」。
+         *
+         * 原来是「15:58 开始的学习 · 已 12 分钟」—— 攒了三十次之后，
+         * 三十行一模一样的「xx:xx 开始的学习」等于没有标题，
+         * 而用户打开记录面板想找的恰恰是"上次那个讲判别式的"。
+         */
+        name.textContent = this.hints.get(s.id) ?? sessionTitle(s);
 
         const meta = document.createElement('div');
         meta.className = 'session__meta';

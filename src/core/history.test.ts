@@ -18,6 +18,7 @@ import {
   humanDuration,
   localDayKey,
   sessionTitle,
+  deriveSessionHint,
 } from './history';
 
 function at(y: number, m: number, d: number, h = 0, min = 0): number {
@@ -148,5 +149,85 @@ describe('sessionTitle', () => {
 
   it('空白标题当成没命名', () => {
     expect(sessionTitle(session({ id: 's', startedAt: at(2026, 9, 15, 8, 0), title: '   ' }))).toBe('08:00 开始的学习');
+  });
+});
+
+describe('deriveSessionHint —— 这次到底学了什么', () => {
+  const ev = (over: Record<string, unknown>) =>
+    ({
+      boardId: 'b1',
+      sessionId: 's1',
+      seq: 1,
+      actor: 'user',
+      createdAt: 1000,
+      deviceId: 'dev',
+      synced: 0,
+      ...over,
+    }) as never;
+
+  it('★ 拿用户自己说的第一句话当标题', () => {
+    expect(
+      deriveSessionHint([
+        ev({ id: 'e1', kind: 'board.create', payload: { title: '板' }, createdAt: 1 }),
+        ev({ id: 'e2', kind: 'user.say', payload: { text: '一元二次方程的判别式是什么' }, createdAt: 2 }),
+        ev({ id: 'e3', kind: 'user.say', payload: { text: '那求根公式呢' }, createdAt: 3 }),
+      ]),
+    ).toBe('一元二次方程的判别式是什么');
+  });
+
+  it('★ 按时间取第一句，不是按数组顺序', () => {
+    expect(
+      deriveSessionHint([
+        ev({ id: 'e2', kind: 'user.say', payload: { text: '后来问的' }, createdAt: 9 }),
+        ev({ id: 'e1', kind: 'user.say', payload: { text: '先问的' }, createdAt: 1 }),
+      ]),
+    ).toBe('先问的');
+  });
+
+  it('太长的话截断（列表里放不下）', () => {
+    const long = '一'.repeat(100);
+    const hint = deriveSessionHint([ev({ id: 'e1', kind: 'user.say', payload: { text: long } })]);
+    expect(hint).not.toBeNull();
+    expect(hint!.length).toBeLessThanOrEqual(41);
+    expect(hint!.endsWith('…')).toBe(true);
+  });
+
+  it('把换行和多余空格压平（列表是一行）', () => {
+    expect(
+      deriveSessionHint([
+        ev({ id: 'e1', kind: 'user.say', payload: { text: '这句\n\n  有换行' } }),
+      ]),
+    ).toBe('这句 有换行');
+  });
+
+  it('★ 没说过话就退回第一个板面块的区域名（纯手写的一次）', () => {
+    expect(
+      deriveSessionHint([
+        ev({ id: 'e1', kind: 'ink.stroke', actor: 'user', payload: { stroke: {} } }),
+        ev({ id: 'e2', kind: 'ai.write', actor: 'ai', payload: { op: 'append', region: '判别式', html: '<p>x</p>' } }),
+      ]),
+    ).toBe('判别式');
+  });
+
+  it('什么都没说、也没写 → null（调用方退回显示时间）', () => {
+    expect(deriveSessionHint([ev({ id: 'e1', kind: 'ink.clear', payload: null })])).toBeNull();
+    expect(deriveSessionHint([])).toBeNull();
+  });
+
+  it('空白的 user.say 不算数', () => {
+    expect(
+      deriveSessionHint([
+        ev({ id: 'e1', kind: 'user.say', payload: { text: '   ' } }),
+        ev({ id: 'e2', kind: 'user.say', payload: { text: '真正的话' } }),
+      ]),
+    ).toBe('真正的话');
+  });
+
+  it('append 不带区域名时不会崩', () => {
+    expect(
+      deriveSessionHint([
+        ev({ id: 'e1', kind: 'ai.write', actor: 'ai', payload: { op: 'append', html: '<p>x</p>' } }),
+      ]),
+    ).toBeNull();
   });
 });

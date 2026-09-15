@@ -10,8 +10,10 @@
  *   在中国（UTC+8），晚上 8 点之后的学习会被算到"第二天"。
  */
 
+import type { BoardEvent } from './types';
 import type { SessionRecord } from './session';
 import { sessionDuration } from './session';
+import { compareGlobalEvents } from './sync';
 
 /**
  * 时间戳 → 本地时区的日期键 `YYYY-MM-DD`。
@@ -102,4 +104,40 @@ export function sessionTitle(session: SessionRecord): string {
   const hh = String(d.getHours()).padStart(2, '0');
   const mm = String(d.getMinutes()).padStart(2, '0');
   return `${hh}:${mm} 开始的学习`;
+}
+
+/**
+ * 从事件里推「这一次到底学了什么」。
+ *
+ * ## 为什么需要它
+ *
+ * 会话列表原来只显示「15:58 开始的学习 · 已 12 分钟」——
+ * 攒了三十次之后，三十行一模一样的「xx:xx 开始的学习」，**等于没有标题**。
+ * 而用户打开记录面板想找的恰恰是"上次那个讲判别式的"。
+ *
+ * 拿什么当标题：**用户自己说的第一句话**。那是他对这次学习最直接的描述，
+ * 而且是他自己写的，比我们编的摘要可信。
+ * 没有说过话（比如纯手写的一次）就退回第一个板面块的小标题。
+ *
+ * @param events 这次会话产生的事件（顺序无所谓，内部会按时间排）
+ */
+export function deriveSessionHint(events: readonly BoardEvent[]): string | null {
+  const mine = [...events].sort(compareGlobalEvents);
+
+  for (const e of mine) {
+    if (e.kind === 'user.say') {
+      const text = e.payload.text.trim().replace(/\s+/g, ' ');
+      if (text !== '') return text.length > 40 ? `${text.slice(0, 40)}…` : text;
+    }
+  }
+
+  // 没说过话 —— 可能是纯手写/纯圈画的一次
+  for (const e of mine) {
+    if (e.kind !== 'ai.write') continue;
+    // region 是可选的（append 可以不带区域名）
+    const region = e.payload.region;
+    if (typeof region === 'string' && region.trim() !== '') return region;
+  }
+
+  return null;
 }
