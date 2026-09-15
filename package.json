@@ -1,0 +1,17 @@
+{
+  "name": "teach-learn-whiteboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "共写白板 —— 安卓本地学习白板（M0：先做能画线的网页版）",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^8.3.0"
+  }
+}

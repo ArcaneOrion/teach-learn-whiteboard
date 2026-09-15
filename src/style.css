@@ -1,0 +1,165 @@
+/* ─────────────────────────────────────────────────────────────
+   共写白板 · 样式
+   布局：状态条 / 板面 / 工具栏 三段，板面吃掉剩余全部高度。
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+  --bg: #fbfaf7;
+  --panel: #ffffff;
+  --ink: #1f2328;
+  --muted: #6b7280;
+  --line: #e3e0d8;
+  --accent: #2563eb;
+  --statusbar-h: 40px;
+  --toolbar-h: 56px;
+
+  color-scheme: light;
+  font-family: -apple-system, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+
+  /* 手机上：禁止下拉刷新、禁止橡皮筋滚动 —— 否则写字时会误触发 */
+  overscroll-behavior: none;
+
+  /* 长按选中文字会打断写字 */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100dvh; /* dvh 能正确处理手机地址栏收起/展开 */
+}
+
+/* ── 状态条 ── */
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--statusbar-h);
+  padding: 0 12px;
+  padding-top: env(safe-area-inset-top);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.statusbar__title {
+  font-weight: 600;
+}
+
+.statusbar__meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ── 板面 ── */
+.stage {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+}
+
+#ink {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+
+  /* ★ 必须有：不加的话浏览器会把手指/笔的移动当成滚动手势抢走，
+     表现是"画一笔变成页面滚动"或者"线断断续续" */
+  touch-action: none;
+
+  /* 笔迹跟着笔走，不需要过渡动画 */
+  cursor: crosshair;
+}
+
+/* ── 工具栏 ── */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  min-height: var(--toolbar-h);
+  padding: 8px 12px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+
+.toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn.is-active {
+  border-color: var(--accent);
+  background: #eef2ff;
+  color: #3730a3;
+  font-weight: 600;
+}
+
+.swatch {
+  width: 30px;
+  height: 30px;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  background: var(--c);
+  cursor: pointer;
+  padding: 0;
+}
+
+.swatch.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px #dbeafe;
+}
+
+/* ── 调试读数 ── */
+.hud {
+  position: fixed;
+  left: 10px;
+  bottom: calc(var(--toolbar-h) + env(safe-area-inset-bottom) + 10px);
+  max-width: calc(100vw - 20px);
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--muted);
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  pointer-events: none;
+  white-space: normal;
+}

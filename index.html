@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- user-scalable=no + viewport-fit=cover：手机上禁止双指缩放页面，并让内容延伸到刘海/圆角区域 -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#fbfaf7" />
+    <title>共写白板</title>
+  </head>
+  <body>
+    <!-- 状态条：一行，永远在 -->
+    <header class="statusbar">
+      <span class="statusbar__title">共写白板</span>
+      <span class="statusbar__meta" id="status">M0 · 墨迹层</span>
+    </header>
+
+    <!-- 板面。canvas 绝对定位铺满，尺寸由 TS 按 devicePixelRatio 设定 -->
+    <main class="stage" id="stage">
+      <canvas id="ink"></canvas>
+    </main>
+
+    <!-- 工具栏 -->
+    <footer class="toolbar">
+      <div class="toolbar__group" role="group" aria-label="工具">
+        <button class="btn is-active" data-tool="pen" type="button">✏️ 笔</button>
+        <button class="btn" data-tool="eraser" type="button">🧽 橡皮</button>
+      </div>
+
+      <div class="toolbar__group" role="group" aria-label="颜色">
+        <button class="swatch is-active" data-color="#1f2328" style="--c: #1f2328" type="button" aria-label="黑色"></button>
+        <button class="swatch" data-color="#e5484d" style="--c: #e5484d" type="button" aria-label="红色"></button>
+        <button class="swatch" data-color="#2563eb" style="--c: #2563eb" type="button" aria-label="蓝色"></button>
+        <button class="swatch" data-color="#047857" style="--c: #047857" type="button" aria-label="绿色"></button>
+      </div>
+
+      <div class="toolbar__group" role="group" aria-label="粗细">
+        <button class="btn" data-size="2" type="button">细</button>
+        <button class="btn is-active" data-size="4" type="button">中</button>
+        <button class="btn" data-size="8" type="button">粗</button>
+      </div>
+
+      <div class="toolbar__group" role="group" aria-label="操作">
+        <button class="btn" id="undo" type="button">↩️ 撤销</button>
+        <button class="btn" id="clear" type="button">🗑 清空</button>
+      </div>
+    </footer>
+
+    <!-- M0 调试读数：用来验证输入质量（有没有压感、DPR 对不对、采样点密不密）。M1 之后会去掉 -->
+    <div class="hud" id="hud" aria-live="off"></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

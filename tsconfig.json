@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    /* 语法目标：现代浏览器和安卓 WebView 都支持 */
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    /* 严格模式：新手最需要的功能 —— 让编译器替你发现错误，而不是运行时才炸 */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+
+    /* Vite 负责把 TS 转换成 JS，所以 tsc 只做类型检查、不产出文件 */
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src", "vite.config.ts"]
+}
