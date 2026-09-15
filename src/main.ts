@@ -1742,6 +1742,26 @@ async function boot(): Promise<void> {
   seedConversation(theLog);
 
   recompose();
+
+  /**
+   * ★★ 启动时必须**手动重画一次墨迹层**。
+   *
+   * 踩过的坑（「一刷新手写就不见了」）：`renderer` 只在 `resize()` 里重建离屏画布，
+   * 而 `resize()` **只在位图尺寸变化时**才重建（那个判断是为了省性能）。
+   *
+   * 启动顺序恰好卡在这个缝里：
+   *   ① canvas 先按版式定尺寸 —— 此时事件还没加载，笔迹是空的
+   *   ② 再读回历史事件、`recompose()` —— 它只管内容层（AI 写的 HTML）
+   *   ③ 没有任何人再叫墨迹层重画
+   *
+   * 于是**重载之后板上的手写全是空的**（数据其实好好的，事件都在）——
+   * 而且再画一笔只会画出那一笔，看起来像"旧笔迹丢了"。
+   *
+   * 换板那条路（`switchBoard`）一直是 `recompose(); renderer.redrawAll();` 成对出现的，
+   * 所以切板是好的 —— **只有启动这条路漏了**。
+   */
+  renderer.redrawAll();
+
   await onBoardReady(decision.isNew, existing.length);
 }
 
