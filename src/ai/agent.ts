@@ -62,6 +62,26 @@ export interface TurnResult {
 const DEFAULT_MAX_STEPS = 6;
 
 /**
+ * 从 error 事件里抠出**真正有用**的错误文本。
+ *
+ * ⚠️ 踩过的坑：一开始直接用了 `event.reason`，结果用户看到的是
+ * **「模型调用出错：error」** —— 那是事件的**类型名**，不是错误内容，等于什么都没说。
+ * 真正的原因在 `event.error.errorMessage` 里。
+ */
+function describeStreamError(message: { errorMessage?: string; content?: { type: string; text?: string }[] }): string {
+  if (typeof message.errorMessage === 'string' && message.errorMessage.trim() !== '') {
+    return message.errorMessage.trim();
+  }
+  // 退一步：有些情况下错误文本会作为一段正文内容回来
+  const text = (message.content ?? [])
+    .filter((b) => b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text ?? '')
+    .join(' ')
+    .trim();
+  return text !== '' ? text : '模型没有返回具体原因（看控制台里的原始错误）';
+}
+
+/**
  * 跑完一轮对话。
  *
  * 注意：**工具执行失败不会中断整轮** —— 它作为一条 isError 的工具结果回给模型，
@@ -90,7 +110,9 @@ export async function runTurn(opts: RunTurnOptions): Promise<TurnResult> {
           break;
         case 'error':
           throw new Error(
-            opts.signal?.aborted ? '已取消' : `模型调用出错：${event.reason}`,
+            opts.signal?.aborted === true || event.reason === 'aborted'
+              ? '已取消'
+              : `模型调用出错：${describeStreamError(event.error)}`,
           );
         default:
           // thinking / toolcall_delta 等暂不处理（M2 先不做思考过程展示）

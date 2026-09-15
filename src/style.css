@@ -57,13 +57,24 @@ body {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   font-size: 13px;
+  /* ★ 状态条**永远是一行**。不加这个的话，一句长错误信息会把标题挤成两行、
+     整条状态条长高，板面跟着往下缩 —— 布局会跳。 */
+  overflow: hidden;
 }
 
 .statusbar__title {
+  flex: none;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .statusbar__meta {
+  /* flex:1 + min-width:0 是让省略号生效的关键组合 */
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: var(--muted);
   font-size: 12px;
 }

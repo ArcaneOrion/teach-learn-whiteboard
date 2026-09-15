@@ -42,6 +42,7 @@ import { makeId } from './store/types';
 import { StoreCredentialStore } from './ai/credentials';
 import { allChannels, buildRegistry, loadChannels, saveChannels, type ChannelRegistry } from './ai/channels';
 import { runTurn, type ToolOutcome } from './ai/agent';
+import { explainError } from './ai/errors';
 import { boardTools, TOOL_ASK_USER, TOOL_BOARD_WRITE } from './ai/tools';
 import { describeUserTurn, systemPrompt } from './ai/prompt';
 import type { DemoChannel } from './ai/demoChannel';
@@ -149,6 +150,9 @@ function scheduleHud(): void {
 
 function setStatus(text: string): void {
   statusEl.textContent = text;
+  // 状态条只有一行，长信息会被省略号截断 —— 完整内容挂在 title 上，悬停能看全。
+  // 顺便把「点一下开关调试读数」这个隐藏操作也写进去，否则没人发现得了。
+  statusEl.title = text === '' ? '点一下显示/隐藏调试读数' : `${text}\n（点一下显示/隐藏调试读数）`;
 }
 
 // ── 尺寸 ──────────────────────────────────────────────────────
@@ -386,6 +390,12 @@ function executeTool(name: string, args: Record<string, unknown>): ToolOutcome {
   return { result: `没有这个工具：${name}`, isError: true };
 }
 
+/** 我们是在安卓 App 里跑，还是在电脑浏览器里？决定报错时提不提 CORS */
+function runtime(): 'browser' | 'app' {
+  // Capacitor 注入 window.Capacitor。装上 Capacitor 之后这里自然为真
+  return 'Capacitor' in window ? 'app' : 'browser';
+}
+
 // ── 一次对话回合 ──────────────────────────────────────────────
 
 function scrollToBottom(): void {
@@ -447,7 +457,7 @@ async function sendTurn(rawText: string): Promise<void> {
     }
   } catch (err) {
     console.error('对话失败：', err);
-    setStatus(`出错：${err instanceof Error ? err.message : String(err)}`);
+    setStatus(`出错：${explainError(err, runtime())}`);
   } finally {
     running = false;
     updateSendEnabled();
@@ -719,7 +729,6 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
   // 调试读数：生产构建里默认关掉（它是浮在板面上的，会挡住内容）；
   // 点状态条可以随时开关。开发模式默认开着，方便调试。
   hud.hidden = !IS_DEV_BUILD;
-  statusEl.title = '点一下显示/隐藏调试读数';
   statusEl.style.cursor = 'pointer';
   statusEl.addEventListener('click', () => {
     hud.hidden = !hud.hidden;
