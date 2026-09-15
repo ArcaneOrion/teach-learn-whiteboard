@@ -103,6 +103,10 @@ export class MemoryStore implements Store {
     this.meta.set(key, value);
   }
 
+  async allMeta(): Promise<{ key: string; value: unknown }[]> {
+    return [...this.meta.entries()].map(([key, value]) => ({ key, value }));
+  }
+
   async clear(): Promise<void> {
     this.events.clear();
     this.boards.clear();

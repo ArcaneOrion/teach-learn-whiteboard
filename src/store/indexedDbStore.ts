@@ -280,6 +280,15 @@ export class IndexedDbStore implements Store {
     await txDone(tx);
   }
 
+  async allMeta(): Promise<{ key: string; value: unknown }[]> {
+    const tx = this.need().transaction(STORE_META, 'readonly');
+    const rows = await req(
+      tx.objectStore(STORE_META).getAll() as IDBRequest<{ key: string; value: unknown }[]>,
+    );
+    await txDone(tx);
+    return rows;
+  }
+
   async clear(): Promise<void> {
     const names = [STORE_EVENTS, STORE_BOARDS, STORE_SESSIONS, STORE_META, STORE_ATTACHMENTS];
     const tx = this.need().transaction(names, 'readwrite');

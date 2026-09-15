@@ -606,6 +606,88 @@ body {
   text-align: center;
 }
 
+/* ── 数据与备份面板 ─────────────────────────────────────────── */
+
+.data__stats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 16px 14px;
+}
+
+.stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px dashed #f0eee9;
+  font-size: 13.5px;
+}
+
+.stat__label {
+  color: #374151;
+}
+
+.stat__value {
+  flex: none;
+  font-weight: 600;
+}
+
+.data__danger {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+/* 面板内的两步确认（刻意不用 window.confirm，见 ui/dataPanel.ts 的说明） */
+.confirm {
+  padding: 0 16px 14px;
+}
+
+.confirm[hidden] {
+  display: none;
+}
+
+.confirm__inner {
+  padding: 12px 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #f0f7ff;
+}
+
+.confirm__inner--danger {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.confirm__title {
+  margin-bottom: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.confirm__detail {
+  margin: 0 0 8px;
+  color: #1f2328;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.confirm__hint {
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.confirm__actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* ── 记录面板 ───────────────────────────────────────────────── */
 
 .history__search {

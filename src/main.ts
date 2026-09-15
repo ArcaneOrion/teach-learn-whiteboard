@@ -36,9 +36,13 @@ import { resolveSession, sessionDuration } from './core/session';
 import { ContentLayer } from './ui/contentLayer';
 import { SettingsPanel } from './ui/settingsPanel';
 import { HistoryPanel } from './ui/historyPanel';
+import { DataPanel } from './ui/dataPanel';
 import { htmlToText } from './ui/htmlText';
-import { blobToBase64, blobToDataUrl, rasterizeBoard } from './ui/rasterize';
+import { blobToBase64, blobToDataUrl } from './base64';
+import { rasterizeBoard } from './ui/rasterize';
 import { buildIndex, dedupeByRegion, type SearchDoc } from './core/search';
+import { backupFileName, countCredentials, parseBackup } from './core/backup';
+import { backupToBlob, downloadBlob, exportBackup, importBackup } from './store/transfer';
 import { IndexedDbStore } from './store/indexedDbStore';
 import { MemoryStore } from './store/memoryStore';
 import { makeId } from './store/types';
@@ -77,6 +81,7 @@ const choiceBar = must<HTMLElement>('#choicebar');
 const channelSelect = must<HTMLSelectElement>('#channel');
 const openSettingsBtn = must<HTMLButtonElement>('#open-settings');
 const openHistoryBtn = must<HTMLButtonElement>('#open-history');
+const openDataBtn = must<HTMLButtonElement>('#open-data');
 
 // ── 状态 ──────────────────────────────────────────────────────
 
@@ -731,8 +736,64 @@ function makeSettingsPanel(): SettingsPanel {
 
 let settingsPanel: SettingsPanel | null = null;
 let historyPanel: HistoryPanel | null = null;
+let dataPanel: DataPanel | null = null;
 
-// ── 记录面板：搜内容 + 按日期的学习记录 ──────────────────────
+// ── 数据与备份 ────────────────────────────────────────────────
+
+const APP_VERSION = '0.1.0';
+
+function makeDataPanel(theStore: Store): DataPanel {
+  return new DataPanel({
+    stats: async () => {
+      const boards = await theStore.listBoards();
+      let events = 0;
+      let attachments = 0;
+      for (const b of boards) {
+        events += (await theStore.loadEvents(b.id)).length;
+        attachments += (await theStore.listAttachments(b.id)).length;
+      }
+      const meta = await theStore.allMeta();
+      return {
+        boards: boards.length,
+        sessions: (await theStore.listSessions()).length,
+        events,
+        attachments,
+        attachmentBytes: await theStore.attachmentBytes(),
+        credentials: countCredentials(meta),
+      };
+    },
+
+    onExport: async () => {
+      const backup = await exportBackup(theStore, APP_VERSION, Date.now());
+      downloadBlob(backupToBlob(backup), backupFileName(backup.exportedAt));
+      setStatus(
+        `已导出备份：${backup.data.events.length} 条事件 · ${backup.data.attachments.length} 张截图`,
+      );
+    },
+
+    parse: (text) => parseBackup(text),
+
+    onImport: async (backup) => {
+      const summary = await importBackup(theStore, backup);
+
+      // 导入之后必须重新读一遍 —— 内存里的日志已经不完整了
+      window.setTimeout(() => location.reload(), 1200);
+      return (
+        `已合并：${summary.boards} 块板 · ${summary.sessions} 次会话 · ` +
+        `${summary.events} 条事件 · ${summary.attachments} 张截图。正在重新载入…`
+      );
+    },
+
+    onReset: async () => {
+      await theStore.clear();
+      location.reload();
+    },
+  });
+}
+
+openHistoryBtn.addEventListener('click', () => {
+  void historyPanel?.open();
+});
 
 /**
  * 把事件日志投影成可搜索的文档表。
@@ -774,12 +835,12 @@ function locateOnBoard(doc: SearchDoc): void {
   window.setTimeout(() => target.classList.remove('is-located'), 3000);
 }
 
-openHistoryBtn.addEventListener('click', () => {
-  void historyPanel?.open();
-});
-
 openSettingsBtn.addEventListener('click', () => {
   void settingsPanel?.open();
+});
+
+openDataBtn.addEventListener('click', () => {
+  void dataPanel?.open();
 });
 
 // ── 启动 ──────────────────────────────────────────────────────
@@ -911,6 +972,7 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
       }),
       locate: locateOnBoard,
     });
+    dataPanel = makeDataPanel(theStore);
   }
 
   // 调试读数：生产构建里默认关掉（它是浮在板面上的，会挡住内容）；

@@ -184,25 +184,3 @@ export async function rasterizeBoard(options: RasterizeOptions): Promise<Snapsho
 
   return { blob, width: canvas.width, height: canvas.height, scale };
 }
-
-/** Blob → base64（不带 data: 前缀），发给模型时要用这个形式 */
-export async function blobToBase64(blob: Blob): Promise<string> {
-  const buffer = await blob.arrayBuffer();
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(binary);
-}
-
-/** Blob → data URL（界面里显示缩略图用） */
-export function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error('读取截图失败'));
-    reader.readAsDataURL(blob);
-  });
-}

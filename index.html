@@ -91,6 +91,7 @@
         <select class="select" id="channel" aria-label="当前渠道与模型"></select>
         <button class="btn" id="open-settings" type="button">⚙️ 渠道</button>
         <button class="btn" id="open-history" type="button">🕘 记录</button>
+        <button class="btn" id="open-data" type="button">💾 数据</button>
       </div>
     </footer>
 
@@ -158,6 +159,45 @@
       <div class="history__body">
         <div id="history-results" hidden></div>
         <div id="history-days"></div>
+      </div>
+    </dialog>
+
+    <!-- 数据与备份。导出是**必需**功能：卸载即删（技术文档 §15.3 坑二） -->
+    <dialog class="settings" id="data">
+      <div class="settings__head">
+        <h2>数据与备份</h2>
+        <button class="btn" id="close-data" type="button">关闭</button>
+      </div>
+
+      <p class="settings__note">
+        <strong>你的数据全部在这台设备上，我们没有服务器。</strong><br />
+        但要注意：<strong>卸载 App 会把它们一起删掉</strong>。
+        所以建议定期导出备份 —— 尤其是你不想丢的学习记录。
+      </p>
+
+      <div class="data__stats" id="data-stats"></div>
+
+      <div class="settings__form">
+        <button class="btn btn--primary" id="data-export" type="button">导出备份文件</button>
+        <button class="btn" id="data-import" type="button">从备份文件恢复</button>
+        <input id="data-file" type="file" accept="application/json,.json" hidden />
+      </div>
+
+      <!--
+        确认区。
+        ⚠️ 刻意**不用 window.confirm**：原生弹窗会阻塞整个页面，
+        而且长得跟 App 完全不一样、说不了细节。
+        这里把「要做什么、会影响什么」写清楚，再让用户点第二个按钮。
+      -->
+      <div class="confirm" id="data-confirm" hidden></div>
+
+      <p class="settings__foot" id="data-note">
+        备份文件里<strong>不含 API Key</strong> —— Key 只留在这台设备上，恢复后要重新填一次。
+      </p>
+
+      <div class="settings__form data__danger">
+        <button class="btn btn--danger" id="data-reset" type="button">清空全部数据</button>
+        <p class="settings__foot">不可撤销。清空前请先导出备份。</p>
       </div>
     </dialog>
 

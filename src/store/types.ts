@@ -98,6 +98,8 @@ export interface Store {
 
   getMeta<T>(key: string): Promise<T | null>;
   setMeta(key: string, value: unknown): Promise<void>;
+  /** 全部 meta（导出备份要用）。注意里面**含凭据**，导出时必须先剔掉 */
+  allMeta(): Promise<{ key: string; value: unknown }[]>;
 
   /** 清空全部数据（调试与"重置"用） */
   clear(): Promise<void>;
