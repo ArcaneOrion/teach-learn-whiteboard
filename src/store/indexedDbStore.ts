@@ -532,7 +532,12 @@ export class IndexedDbStore implements Store {
     const tx = this.need().transaction(STORE_CHUNKS, 'readonly');
     const rows = await req(tx.objectStore(STORE_CHUNKS).getAll() as IDBRequest<ChunkRecord[]>);
     await txDone(tx);
-    return rows;
+    // 按 (文档, 块序号) 排好 —— 内存实现就是这么排的。
+    // IndexedDB 的 getAll 顺序取决于主键，不能当成"已排序"
+    // （两个实现返回顺序不一致，是那种平时看不出来、一到分页或对比就出问题的地方）
+    return rows.sort((a, b) =>
+      a.docId === b.docId ? a.ord - b.ord : a.docId < b.docId ? -1 : 1,
+    );
   }
 
   async countChunks(): Promise<number> {
@@ -565,7 +570,9 @@ export class IndexedDbStore implements Store {
       tx.objectStore(STORE_META).getAll() as IDBRequest<{ key: string; value: unknown }[]>,
     );
     await txDone(tx);
-    return rows;
+    // 按 key 排好 —— 内存实现（插入顺序）和 IndexedDB（主键顺序）本来不一样，
+    // 统一成"按 key 字典序"，两边就一致了，调用方也不用猜
+    return rows.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   }
 
   async clear(): Promise<void> {

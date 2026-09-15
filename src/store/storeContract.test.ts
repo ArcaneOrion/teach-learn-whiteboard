@@ -367,6 +367,103 @@ function chunk(over: Partial<ChunkRecord> & { id: string; docId: string; ord: nu
       await expect(store.markSynced([])).resolves.toBeUndefined();
     });
 
+    // ── 隔离性：读出来的东西改不动存储 ─────────────────────────
+    //
+    // 这一组是**专门防"两个实现语义分叉"**的。
+    // 真数据库（IndexedDB）存取都经过结构化克隆，拿到的是副本；
+    // 内存实现如果直接返回内部对象，就比真实现更宽松 ——
+    // `const b = await store.getBoard(id); b.title = 'x'` 在内存里"生效"、
+    // 在真机上什么也没发生。**测试会骗你**，而这类分叉已经坑过几次了。
+
+    it('★ 改读出来的板，不会影响存储', async () => {
+      await store.putBoard(board({ id: 'b1', title: '原名' }));
+      const got = await store.getBoard('b1');
+      if (got !== null) got.title = '被改过的';
+
+      expect((await store.getBoard('b1'))?.title).toBe('原名');
+    });
+
+    it('★ 改读出来的板列表里的元素，也不会影响存储', async () => {
+      await store.putBoard(board({ id: 'b1', title: '原名' }));
+      const list = await store.listBoards();
+      if (list[0] !== undefined) list[0].title = '被改过的';
+
+      expect((await store.getBoard('b1'))?.title).toBe('原名');
+    });
+
+    it('★ 写进去之后再改调用方那份，也不影响存储', async () => {
+      const record = board({ id: 'b1', title: '写入时的名字' });
+      await store.putBoard(record);
+      record.title = '写完才改的';
+
+      expect((await store.getBoard('b1'))?.title).toBe('写入时的名字');
+    });
+
+    it('★ meta 也一样 —— syncConfig 就是靠它存的，改错了会静默丢配置', async () => {
+      await store.setMeta('syncConfig', { baseUrl: 'http://a', auto: true });
+
+      const got = await store.getMeta<{ baseUrl: string; auto: boolean }>('syncConfig');
+      if (got !== null) got.auto = false;
+
+      expect((await store.getMeta<{ auto: boolean }>('syncConfig'))?.auto).toBe(true);
+    });
+
+    it('★ 读出来的会话 / 资料 / 块 同样隔离', async () => {
+      await store.putSession(session({ id: 's1', title: '原样' }));
+      await store.putDoc(doc({ id: 'd1', title: '原名' }));
+      await store.putChunks('d1', [chunk({ id: 'c1', docId: 'd1', ord: 0, text: '原文' })]);
+
+      const gotSession = await store.getSession('s1');
+      if (gotSession !== null) gotSession.title = '被改过的';
+      const gotDoc = await store.getDoc('d1');
+      if (gotDoc !== null) gotDoc.title = '被改过的';
+      const gotChunks = await store.allChunks();
+      if (gotChunks[0] !== undefined) gotChunks[0].text = '被改过的';
+
+      expect((await store.getSession('s1'))?.title).toBe('原样');
+      expect((await store.getDoc('d1'))?.title).toBe('原名');
+      expect((await store.allChunks())[0]?.text).toBe('原文');
+    });
+
+    it('★ 读出来的事件也隔离（事件本来就该是不可变的）', async () => {
+      await store.appendEvents([event({ id: 'e1', seq: 1 })]);
+      const rows = await store.loadEvents('b1');
+      if (rows[0] !== undefined) rows[0].seq = 999;
+
+      expect((await store.loadEvents('b1'))[0]?.seq).toBe(1);
+    });
+
+    // ── 返回顺序：两个实现必须一致 ─────────────────────────────
+
+    it('★ allChunks 按 (文档, 块序号) 排好，两个实现一致', async () => {
+      /**
+       * ⚠️ id 是**故意和排序错开**的。
+       *
+       * 第一版用了 `z0`/`z1` 这种 id —— 结果 IndexedDB 的 `getAll()`
+       * 按主键顺序返回，恰好和期望一致，**测试碰巧过了**，
+       * 完全没起到"盯住分叉"的作用。
+       *
+       * 现在让 id 的字典序和块序号**正好相反**：不排序就一定会被抓到。
+       */
+      await store.putChunks('zb', [
+        chunk({ id: 'zzz', docId: 'zb', ord: 0 }),
+        chunk({ id: 'aaa', docId: 'zb', ord: 1 }),
+      ]);
+      await store.putChunks('aa', [chunk({ id: 'mmm', docId: 'aa', ord: 0 })]);
+
+      // 顺序只看 (docId, ord)，和 id 长什么样无关
+      expect((await store.allChunks()).map((c) => c.id)).toEqual(['mmm', 'zzz', 'aaa']);
+    });
+
+    it('★ allMeta 按 key 排好，两个实现一致', async () => {
+      // 故意按和 key 顺序相反的次序写入 —— 不排序就会被抓到
+      await store.setMeta('zebra', 1);
+      await store.setMeta('apple', 2);
+      await store.setMeta('mango', 3);
+
+      expect((await store.allMeta()).map((m) => m.key)).toEqual(['apple', 'mango', 'zebra']);
+    });
+
     // ── 资料（RAG）────────────────────────────────────────────
 
     it('★ 资料与它的块能存能取', async () => {
