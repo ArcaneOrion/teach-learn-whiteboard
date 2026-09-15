@@ -45,6 +45,7 @@ import { blobToBase64, blobToDataUrl } from './base64';
 import { rasterizeBoard } from './ui/rasterize';
 import { buildIndex, dedupeByRegion, type SearchDoc } from './core/search';
 import { chunkText, searchMaterials, type MaterialCandidate } from './core/materials';
+import { extractPdfText, looksLikePdf, pageOfOffset } from './ui/pdfText';
 import { backupFileName, countCredentials, parseBackup } from './core/backup';
 import { backupToBlob, downloadBlob, exportBackup, importBackup } from './store/transfer';
 import { reconcileBoards, pickStartupBoard, countContentEvents } from './store/boards';
@@ -541,6 +542,7 @@ async function searchMaterialsTool(query: string): Promise<ToolOutcome> {
     docTitle: titleOf.get(c.docId) ?? '资料',
     heading: c.heading,
     text: c.text,
+    page: c.page,
   }));
 
   const hits = searchMaterials(candidates, query, 4);
@@ -554,14 +556,20 @@ async function searchMaterialsTool(query: string): Promise<ToolOutcome> {
 
   const body = hits
     .map((hit, i) => {
-      const where = hit.heading === null ? '' : ` · ${hit.heading}`;
-      return `【${i + 1}】出自《${hit.docTitle}》${where}\n${hit.text}`;
+      // 出处要尽量具体：书名 + 页码 / 小节名，用户才能翻过去
+      const where = [
+        hit.page === null ? null : `第 ${hit.page} 页`,
+        hit.heading === null ? null : hit.heading,
+      ]
+        .filter((part): part is string => part !== null)
+        .join(' · ');
+      return `【${i + 1}】出自《${hit.docTitle}》${where === '' ? '' : ` ${where}`}\n${hit.text}`;
     })
     .join('\n\n');
 
   setStatus(`在资料里找到了 ${hits.length} 段相关内容`);
   return {
-    result: `找到 ${hits.length} 段相关内容：\n\n${body}\n\n（把要引用的原文用 board_write 写到板上，标明出自哪本书哪一节。）`,
+    result: `找到 ${hits.length} 段相关内容：\n\n${body}\n\n（把要引用的原文用 board_write 写到板上，标明出自哪本书哪一节或第几页。）`,
   };
 }
 
@@ -1079,43 +1087,14 @@ function makeMaterialsPanel(theStore: Store): MaterialsPanel {
     list: () => theStore.listDocs(),
 
     import: async (file) => {
-      // 目前只支持纯文本。PDF 要额外引一个解析库（pdf.js），下一轮再说
+      if (looksLikePdf(file)) return importPdf(theStore, file);
+
+      // 纯文本
       const text = await file.text();
       if (text.trim() === '') {
-        return `${file.name} 是空的，或者不是纯文本（PDF 还读不了，请先转成 txt/md）。`;
+        return `${file.name} 是空的，或者不是纯文本。扫描版 PDF 也读不出文字（那是图片）。`;
       }
-
-      const drafts = chunkText(text);
-      if (drafts.length === 0) return '这个文件里没有可用的文字内容。';
-
-      const docId = makeId('doc');
-      const title = file.name.replace(/\.[^.]+$/, '');
-
-      await theStore.putDoc({
-        id: docId,
-        userId: 'local',
-        title,
-        fileName: file.name,
-        mime: file.type === '' ? 'text/plain' : file.type,
-        chars: text.length,
-        chunkCount: drafts.length,
-        importedAt: Date.now(),
-      });
-
-      await theStore.putChunks(
-        docId,
-        drafts.map((draft, i) => ({
-          id: `${docId}-${i}`,
-          docId,
-          ord: i,
-          heading: draft.heading,
-          text: draft.text,
-          start: draft.start,
-          end: draft.end,
-        })),
-      );
-
-      return `已导入《${title}》：${text.length} 字，切成 ${drafts.length} 块。现在问 AI 时它会自己去查。`;
+      return importPlainText(theStore, file, text);
     },
 
     remove: async (docId) => {
@@ -1127,6 +1106,80 @@ function makeMaterialsPanel(theStore: Store): MaterialsPanel {
 openMaterialsBtn.addEventListener('click', () => {
   void materialsPanel?.open();
 });
+
+/**
+ * 把一份文本存成资料：切块 + 入库。
+ *
+ * @param pageOf 可选的「字符偏移 → 页码」，PDF 才有
+ */
+async function importPlainText(
+  theStore: Store,
+  file: File,
+  text: string,
+  title?: string,
+  pageOf?: (offset: number) => number,
+): Promise<string> {
+  const drafts = chunkText(text);
+  if (drafts.length === 0) return '这个文件里没有可用的文字内容。';
+
+  const docId = makeId('doc');
+  const docTitle = title ?? file.name.replace(/\.[^.]+$/, '');
+
+  await theStore.putDoc({
+    id: docId,
+    userId: 'local',
+    title: docTitle,
+    fileName: file.name,
+    mime: file.type === '' ? 'text/plain' : file.type,
+    chars: text.length,
+    chunkCount: drafts.length,
+    importedAt: Date.now(),
+  });
+
+  await theStore.putChunks(
+    docId,
+    drafts.map((draft, i) => ({
+      id: `${docId}-${i}`,
+      docId,
+      ord: i,
+      heading: draft.heading,
+      text: draft.text,
+      start: draft.start,
+      end: draft.end,
+      page: pageOf === undefined ? null : pageOf(draft.start),
+    })),
+  );
+
+  return `已导入《${docTitle}》：${text.length} 字，切成 ${drafts.length} 块。现在问 AI 时它会自己去查。`;
+}
+
+/** 导入 PDF：抽文字（按需加载 pdf.js）→ 切块 → 入库，并且**记住每块在第几页** */
+async function importPdf(theStore: Store, file: File): Promise<string> {
+  setStatus('正在读 PDF…（第一次会先下载解析库，稍等）');
+
+  const extracted = await extractPdfText(file, {
+    onProgress: (done, total) => {
+      setStatus(`正在读 PDF… 第 ${done}/${total} 页`);
+    },
+  });
+
+  if (extracted.text.trim() === '') {
+    return (
+      `${file.name} 里没有抽到文字。多半是**扫描版**（整页是图片，没有文字层）—— ` +
+      '这种得走视觉识别，现在还没做。'
+    );
+  }
+
+  const title = file.name.replace(/\.[^.]+$/, '');
+  const message = await importPlainText(theStore, file, extracted.text, title, (offset) =>
+    pageOfOffset(extracted.pageStarts, offset),
+  );
+
+  return `${message.replace('已导入', `已导入（共 ${extracted.pages} 页）`)}`.replace(
+    '现在问 AI 时它会自己去查。',
+    '引用时会标出页码。',
+  );
+}
 
 // ── 板列表：多块板之间切换 ────────────────────────────────────
 

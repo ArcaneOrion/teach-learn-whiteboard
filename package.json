@@ -5,13 +5,16 @@
   "type": "module",
   "description": "共写白板 —— 安卓本地学习白板",
   "scripts": {
+    "predev": "node scripts/sync-pdfjs-assets.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/sync-pdfjs-assets.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "sync-server": "node server/sync-server.mjs"
+    "sync-server": "node server/sync-server.mjs",
+    "sample-pdf": "node scripts/make-sample-pdf.mjs"
   },
   "devDependencies": {
     "fake-indexeddb": "^6.2.5",
@@ -22,6 +25,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.85.1",
-    "dompurify": "^3.4.15"
+    "dompurify": "^3.4.15",
+    "pdfjs-dist": "^6.3.289"
   }
 }

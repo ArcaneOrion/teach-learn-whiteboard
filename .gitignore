@@ -66,3 +66,7 @@ temp/
 
 # ── 验证用的截图等产物（可重新生成）──
 .artifacts/
+
+# ── pdfjs 的静态资源（cmaps / standard_fonts，2.5MB）
+#    每次 pnpm install 都能重新生成：node scripts/sync-pdfjs-assets.mjs
+public/pdfjs/

@@ -138,18 +138,22 @@ describe('searchMaterials', () => {
   const candidates: MaterialCandidate[] = [
     {
       chunkId: 'c1', docId: 'd1', docTitle: '代数课本', heading: '判别式',
+      page: 1,
       text: '判别式 Δ = b² − 4ac 决定一元二次方程根的个数。大于零有两个不相等的实根，等于零有两个相等的实根，小于零没有实根。',
     },
     {
       chunkId: 'c2', docId: 'd1', docTitle: '代数课本', heading: '求根公式',
+      page: 2,
       text: '一元二次方程的求根公式是 x = (−b ± √(b²−4ac)) / 2a，其中根号里就是判别式。',
     },
     {
       chunkId: 'c3', docId: 'd2', docTitle: '英语单词本', heading: null,
+      page: null,
       text: 'discriminant 形容词：有识别力的。',
     },
     {
       chunkId: 'c4', docId: 'd2', docTitle: '地理笔记', heading: null,
+      page: null,
       text: '季风气候的成因与海陆热力性质差异有关。',
     },
   ];

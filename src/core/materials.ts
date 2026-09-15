@@ -227,6 +227,8 @@ export interface MaterialCandidate {
   docTitle: string;
   heading: string | null;
   text: string;
+  /** 第几页（PDF 才有）。引用时要标出来 */
+  page: number | null;
 }
 
 export interface MaterialHit extends MaterialCandidate {

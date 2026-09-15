@@ -122,7 +122,7 @@ describe('缺仓库自愈', () => {
 
     // 写进去也读得出来
     await store.putChunks('d1', [
-      { id: 'c1', docId: 'd1', ord: 0, heading: null, text: '内容', start: 0, end: 2 },
+      { id: 'c1', docId: 'd1', ord: 0, heading: null, text: '内容', start: 0, end: 2, page: null },
     ]);
     expect(await store.countChunks()).toBe(1);
 

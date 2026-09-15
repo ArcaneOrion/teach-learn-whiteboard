@@ -87,6 +87,13 @@ export interface ChunkRecord {
   /** 在原文里的字符偏移（将来定位到原书位置用） */
   start: number;
   end: number;
+  /**
+   * 来自 PDF 的第几页（从 1 开始）。非 PDF 资料是 null。
+   *
+   * 引用原文时要标页码 —— 「《代数课本》第 42 页」比「《代数课本》」
+   * 有用得多，用户能直接翻过去。
+   */
+  page: number | null;
 }
 
 export interface Store {

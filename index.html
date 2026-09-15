@@ -236,12 +236,13 @@
 
       <p class="settings__note">
         导入之后，AI 会在需要时<strong>自己去查</strong>这些资料，把查到的原文写到板上。
-        <br />现在支持 <strong>.txt / .md</strong>；PDF 还没做（要额外引一个解析库）。
+        <br />支持 <strong>.txt / .md / .pdf</strong>。PDF 第一次导入会先下载解析库（约 1.7 MB，只下一次）。
+        <br /><strong>扫描版 PDF 读不出文字</strong> —— 那种整页是图片，得走视觉识别，还没做。
       </p>
 
       <div class="settings__form">
         <button class="btn btn--primary" id="materials-import" type="button">导入文件</button>
-        <input id="materials-file" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" hidden />
+        <input id="materials-file" type="file" accept=".txt,.md,.markdown,.pdf,text/plain,text/markdown,application/pdf" hidden />
       </div>
 
       <div class="settings__list" id="materials-list"></div>

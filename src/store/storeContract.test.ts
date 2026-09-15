@@ -85,6 +85,7 @@ function doc(over: Partial<DocRecord> & { id: string }): DocRecord {
 function chunk(over: Partial<ChunkRecord> & { id: string; docId: string; ord: number }): ChunkRecord {
   return {
     heading: null,
+    page: null,
     text: `第 ${over.ord} 块`,
     start: 0,
     end: 10,
