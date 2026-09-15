@@ -3,9 +3,9 @@
 一个装在安卓手机/平板上的本地白板应用。你在板上写字、画图，AI 也在同一块板上写讲解、出题、批注；
 你可以直接在它写的东西上圈画，而**它能看见你圈了什么**。
 
-> **当前状态：v1 功能完整、可运行、有 326 个单元测试。**
+> **当前状态：v1 功能完整、可运行、有 387 个单元测试。**
 > M0~M7 八个里程碑全部实现并验证过（见下方「实现进度」）。
-> **还没做的一件事：打包成 APK**（开发机上没装 JDK / Android SDK）。
+> **已经能打出可安装的 APK**（安卓工程在 `android/`，见「打成 APK」）。
 
 ---
 
@@ -31,6 +31,36 @@ pnpm preview     # 起一个本地服务器预览 dist/
 
 ---
 
+## 打成 APK
+
+安卓工程在 `android/`（Capacitor 生成，已入库）。准备好 **JDK 21** 和 **Android SDK** 之后：
+
+```bash
+pnpm build            # 先出网页产物
+npx cap sync android  # 把 dist/ 和原生插件同步进安卓工程
+cd android && ./gradlew assembleDebug
+# 产物：android/app/build/outputs/apk/debug/app-debug.apk（约 9.7 MB）
+```
+
+装到手机上，两种都行：
+
+```bash
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+或者把 APK 传到手机（网盘 / 微信 / USB），点一下安装，允许「安装未知应用」。
+
+工具链版本（Capacitor 8 + 模板定死的）：compileSdk 36 · build-tools 36 · Gradle 8.14.3
+（`gradlew` 会自己下载）· minSdk 24（安卓 7.0 起）。
+
+**这是 debug 包**，用安卓通用的调试钥匙签名，只能自己装着用；
+要发布给别人得生成自己的 `.jks`（已在 `.gitignore` 里，不会被提交）。
+
+App 只申请了一个权限：`INTERNET`。学习记录、截图、API Key 全在 App 私有目录里，
+连不上网也能用（只有调 AI 和同步时才需要网络）。
+
+---
+
 ## 怎么用
 
 ### 1. 配一个模型渠道（用 AI 才需要）
@@ -45,7 +75,12 @@ pnpm preview     # 起一个本地服务器预览 dist/
 
 浏览器里能直连的厂商（实测见技术文档 §7.3）：
 DeepSeek / 硅基流动 / 智谱 / 通义 / xAI / Anthropic（需额外请求头）。
-OpenAI、OpenRouter、Moonshot、Google 被 CORS 挡住，**装成 App 之后走原生网络才能用**。
+OpenAI、OpenRouter、Moonshot、Google 被 CORS 挡住，**装成 App 之后照样挡住** ——
+Capacitor 的 WebView 里就是一个普通网页环境（origin 是 `https://localhost`），
+它并没有去改 WebView 的跨域开关（`@capacitor/android` 的 Bridge 里只设了 JS 开关）。
+
+要绕过只剩 `CapacitorHttp`（走原生网络、不经过 WebView），但它**把整个响应缓冲完才交给前端**，
+流式输出会没有 —— 而「AI 一边想一边往板上写」正是这个 App 的核心体验。**所以没开。**
 
 ### 2. 学
 
@@ -203,7 +238,7 @@ console.log(d.documentElement.scrollWidth, d.documentElement.clientWidth);
 
 | | 说明 |
 |---|---|
-| **打包 APK** | 开发机上没装 JDK / Android SDK。装好之后 `npx cap add android` 即可 —— Capacitor 已经在技术文档里定好了，代码不用改 |
+| **发布用的正式签名** | 现在打的是 debug 包（用安卓通用调试钥匙签名，只能自己装着用）。要发出去得生成自己的 `.jks` |
 | **用真实 API Key 验证** | M2 的真实渠道调用、M3「模型确实看懂了圈画」、M4 截图图说 —— 都需要一个真 Key |
 | 内置免费渠道 | 产品规划里有，但**没有验证过可用的公开端点**，宁可留空也不塞一个连不上的 |
 | 扫描版 PDF | 整页是图片，得走视觉识别（能力 M3 已有，缺流程） |

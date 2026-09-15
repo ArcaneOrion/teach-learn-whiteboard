@@ -70,7 +70,13 @@ sync-data*.json
 #     对别人没用，公开出去只是噪音。文件留在本地，只是不跟踪。
 docs/安卓构建环境.md
 
-# ── 本地临时文件 ──
+# ── Android 构建工具链（体积大、跟机器绑定、能重新装回来）──
+#     JDK 由 nix 提供，不在这里；下面是自己下的 SDK 和 gradle 依赖缓存。
+.android-sdk/
+.gradle-home/
+.home/
+
+# ── 本地临时文件 ─
 tmp/
 temp/
 *.tmp
