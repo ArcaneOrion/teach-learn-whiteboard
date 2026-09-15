@@ -59,6 +59,12 @@ yarn-error.log*
 .vite/
 coverage/
 
+# ── ★ 同步服务的数据文件 ──
+#     `pnpm sync-server` 默认就往仓库根目录写这个文件（里面是同步上去的全部内容）。
+#     谁跑一次就会生成一个 —— 不挡的话下一个贡献者也会把它提交进来。
+sync-data.json
+sync-data*.json
+
 # ── 本地临时文件 ──
 tmp/
 temp/
