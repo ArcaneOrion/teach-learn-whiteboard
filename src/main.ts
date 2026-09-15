@@ -792,6 +792,29 @@ function paintChoices(): void {
 }
 
 // 输入条
+/**
+ * 手机上开始打字时，让工具栏先让位。
+ *
+ * 键盘弹起会把可视高度压掉一半，而工具栏一直占着 171px ——
+ * 实测视口 360px 时板面只剩 92px，基本看不到上下文。
+ * 那一刻用户是在打字、不是画画，工具条是纯粹的浪费。
+ *
+ * 样式那边用 `@media (max-width: 480px)` 兜着，宽屏上不会动工具栏。
+ * （点板面会让输入框失焦 → 工具栏自动回来，所以想画画随时能画。）
+ *
+ * ⚠️ 验证边界：自动化环境里 `document.hasFocus()` 是 false，
+ * `focus()` 只设 activeElement、**不投递焦点事件** —— 所以这一条
+ * 只能用**手动派发 FocusEvent** 来验（验过：类加得上、工具栏确实隐藏）。
+ * 真机上手指点一下就会触发，但「真机手感」得你自己确认。
+ */
+sayInput.addEventListener('focus', () => {
+  document.body.classList.add('is-typing');
+});
+
+sayInput.addEventListener('blur', () => {
+  document.body.classList.remove('is-typing');
+});
+
 sayInput.addEventListener('keydown', (e) => {
   // 回车发送，Shift+回车换行
   if (e.key === 'Enter' && !e.shiftKey) {
