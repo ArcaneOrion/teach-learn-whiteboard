@@ -1728,7 +1728,22 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
         scheduleHud();
       },
       onEnd(stroke) {
-        theLog.writeStroke(stroke);
+        /**
+         * ⚠️⚠️ 这里**必须**读模块级的 `log`，不能用上面那个 `theLog` 常量。
+         *
+         * 踩过的坑（数据完整性级别）：
+         * 这个回调是**长期存活**的 —— 它挂在 canvas 上，一直用到 App 关掉为止。
+         * 而 `theLog` 是 `onBoardReady` 开头捕获的**那一刻**的日志。
+         * 于是：**切换板之后，所有手写笔迹都还写进上一块板**。
+         *
+         * 症状极具欺骗性：画的时候一切正常（渲染器在本机把线画出来了），
+         * **一刷新就发现笔迹跑到了别的板上**、当前板上什么都没有。
+         *
+         * 教训：长期存活的回调里，**不要捕获会变的东西**。
+         * 同一个函数里另外几处 `const theLog = log`（executeTool / sendTurn /
+         * paintChoices）是每次调用现取的，没问题 —— 差别就在"活多久"。
+         */
+        log?.writeStroke(stroke);
         renderer.end();
         recompose();
       },
