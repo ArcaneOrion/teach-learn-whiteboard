@@ -239,13 +239,52 @@ export class IndexedDbStore implements Store {
 
   async appendEvents(events: readonly BoardEvent[]): Promise<void> {
     if (events.length === 0) return;
+
+    /**
+     * ⚠️⚠️ 已经存在的事件**整条忽略**，不能覆盖。
+     *
+     * 两个理由：
+     *
+     * ① **事件不可变**：同一个 id 永远应该是同一份内容。
+     *    远端回传的那份不该有机会改动本机已有的记录。
+     *
+     * ② `synced` 是**本机状态**，不是事件内容 —— 服务端只是原样存下客户端发过去的，
+     *    所以它回传的事件里 `synced` **永远是 0**。
+     *
+     * 踩过的（M6 就有了，一直到做自动同步才发现）：
+     * `runSync` 的顺序是「先 markSynced、再 appendEvents(服务端回传的那批)」——
+     * 原来这里是无条件 `put`，于是刚打上的 synced=1 **被自己回传的数据冲回 0**。
+     * 后果是**每次同步都把全部历史重推一遍**，而且随着笔记变多无限增长。
+     *
+     * 内存实现那边是 `if (!has(id))`，本来就不会覆盖 ——
+     * 也就是说两个实现的语义**不一致**，而同步的测试全用内存实现跑，
+     * 所以一直没暴露。契约测试现在盯着这一条。
+     */
+    const existing = await this.eventsByIds(events.map((e) => e.id));
+
     const tx = this.need().transaction(STORE_EVENTS, 'readwrite');
     const os = tx.objectStore(STORE_EVENTS);
     for (const e of events) {
+      if (existing.has(e.id)) continue;
       // put 而不是 add：同一批事件重试时不会因为 id 已存在而整批失败（幂等）
       os.put(e);
     }
     await txDone(tx);
+  }
+
+  /** 按 id 批量取出事件（独立事务 —— 别和写操作混在一个事务里 await） */
+  private async eventsByIds(ids: readonly string[]): Promise<Map<string, BoardEvent>> {
+    const out = new Map<string, BoardEvent>();
+    if (ids.length === 0) return out;
+
+    const tx = this.need().transaction(STORE_EVENTS, 'readonly');
+    const os = tx.objectStore(STORE_EVENTS);
+    for (const id of ids) {
+      const row = await req(os.get(id) as IDBRequest<BoardEvent | undefined>);
+      if (row !== undefined) out.set(id, row);
+    }
+    await txDone(tx);
+    return out;
   }
 
   async loadEvents(boardId: string): Promise<BoardEvent[]> {

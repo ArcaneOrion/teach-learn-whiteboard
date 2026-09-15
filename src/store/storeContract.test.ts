@@ -317,6 +317,56 @@ function chunk(over: Partial<ChunkRecord> & { id: string; docId: string; ord: nu
       expect((await store.getAttachment('a1'))?.record.caption).toBe('用户在判别式上画了个圈');
     });
 
+    // ── 已同步标记（同步的地基）──────────────────────────────
+
+    it('★ 重复写入同一个事件，不会把 synced 标志冲掉', async () => {
+      const e = event({ id: 'e1', seq: 1, synced: 0 });
+      await store.appendEvents([e]);
+      await store.markSynced(['e1']);
+      expect(await store.countUnsynced()).toBe(0);
+
+      /**
+       * 模拟同步的真实顺序：先标记已同步，再写入服务端回传的那批。
+       * 服务端只是原样存了客户端发过去的内容，所以它回传的 `synced` **永远是 0**。
+       *
+       * 这里如果用无条件的 put，标记就被冲回 0 了 ——
+       * 后果是**每次同步都把全部历史重推一遍**，笔记越多越夸张。
+       * （内存实现本来就不覆盖，所以这个 bug 只在 IndexedDB 上出现，
+       *   而同步的测试全用内存实现跑 —— 契约测试现在盯着它。）
+       */
+      await store.appendEvents([{ ...e, synced: 0 }]);
+
+      expect(await store.countUnsynced()).toBe(0);
+      expect((await store.loadEvents('b1'))[0]?.synced).toBe(1);
+    });
+
+    it('★ 重复写入不会改动事件内容（事件不可变）', async () => {
+      await store.appendEvents([event({ id: 'e1', seq: 1, payload: { text: '原来的' } })]);
+      await store.appendEvents([
+        event({ id: 'e1', seq: 1, payload: { text: '被改过的' }, synced: 1 }),
+      ]);
+
+      const rows = await store.loadEvents('b1');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.payload).toEqual({ text: '原来的' });
+    });
+
+    it('标记已同步之后 countUnsynced 归零', async () => {
+      await store.appendEvents([event({ id: 'e1', seq: 1 }), event({ id: 'e2', seq: 2 })]);
+      expect(await store.countUnsynced()).toBe(2);
+
+      await store.markSynced(['e1']);
+      expect(await store.countUnsynced()).toBe(1);
+
+      await store.markSynced(['e2']);
+      expect(await store.countUnsynced()).toBe(0);
+    });
+
+    it('markSynced 传不存在的 id / 空数组都不报错', async () => {
+      await expect(store.markSynced(['不存在'])).resolves.toBeUndefined();
+      await expect(store.markSynced([])).resolves.toBeUndefined();
+    });
+
     // ── 资料（RAG）────────────────────────────────────────────
 
     it('★ 资料与它的块能存能取', async () => {

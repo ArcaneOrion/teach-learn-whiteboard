@@ -32,6 +32,8 @@ export interface DataStats {
 export interface SyncConfig {
   baseUrl: string;
   token: string;
+  /** 自动同步开着吗（配了地址之后默认开） */
+  auto?: boolean;
 }
 
 export interface DataPanelCallbacks {
@@ -53,6 +55,8 @@ export interface DataPanelCallbacks {
   saveSyncConfig: (config: SyncConfig) => Promise<void>;
   /** 跑一次同步，返回给用户看的结果说明 */
   onSync: (config: SyncConfig) => Promise<string>;
+  /** 自动同步现在什么状态（给用户看的一句话） */
+  autoSyncStatus: () => string;
 }
 
 function must<T extends Element>(root: ParentNode, selector: string): T {
@@ -142,6 +146,7 @@ export class DataPanel {
     this.syncToken = must<HTMLInputElement>(this.dialog, '#sync-token');
     this.syncStatus = must<HTMLElement>(this.dialog, '#sync-status');
     this.syncNowBtn = must<HTMLButtonElement>(this.dialog, '#sync-now');
+    this.syncAuto = must<HTMLInputElement>(this.dialog, '#sync-auto');
 
     must<HTMLButtonElement>(this.dialog, '#sync-save').addEventListener('click', () => {
       const saveBtn = must<HTMLButtonElement>(this.dialog, '#sync-save');
@@ -170,10 +175,15 @@ export class DataPanel {
   private readonly syncToken: HTMLInputElement;
   private readonly syncStatus: HTMLElement;
   private readonly syncNowBtn: HTMLButtonElement;
+  private readonly syncAuto: HTMLInputElement;
   private readonly exportImageNote: HTMLElement;
 
   private readSyncForm(): SyncConfig {
-    return { baseUrl: this.syncUrl.value.trim(), token: this.syncToken.value };
+    return {
+      baseUrl: this.syncUrl.value.trim(),
+      token: this.syncToken.value,
+      auto: this.syncAuto.checked,
+    };
   }
 
   private setSyncStatus(text: string): void {
@@ -184,7 +194,13 @@ export class DataPanel {
     const config = await this.callbacks.loadSyncConfig();
     this.syncUrl.value = config.baseUrl;
     this.syncToken.value = config.token;
-    this.setSyncStatus(config.baseUrl === '' ? '还没配同步 —— 不配也不影响其他功能。' : '');
+    // 配了地址之后默认开自动同步 —— 用户既然填了地址，多半就是想让它是自动的
+    this.syncAuto.checked = config.auto ?? config.baseUrl !== '';
+    this.setSyncStatus(
+      config.baseUrl === ''
+        ? '还没配同步 —— 不配也不影响其他功能。'
+        : this.callbacks.autoSyncStatus(),
+    );
     this.exportImageNote.textContent = '';
 
     await this.refreshStats();

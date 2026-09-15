@@ -771,6 +771,23 @@ body {
   margin: 0 0 10px;
 }
 
+/* 勾选项（自动同步的开关） */
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.check input {
+  margin-top: 2px;
+  flex: none;
+}
+
 /* 面板内的两步确认（刻意不用 window.confirm，见 ui/dataPanel.ts 的说明） */
 .confirm {
   padding: 0 16px 14px;

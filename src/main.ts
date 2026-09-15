@@ -50,7 +50,9 @@ import { backupFileName, countCredentials, parseBackup } from './core/backup';
 import { backupToBlob, downloadBlob, exportBackup, importBackup } from './store/transfer';
 import { reconcileBoards, pickStartupBoard, countContentEvents } from './store/boards';
 import { HttpTransport } from './sync/httpTransport';
-import { describeCursor, runSync } from './sync/syncEngine';
+import { runSync, type SyncResult } from './sync/syncEngine';
+import { AutoSync } from './sync/autoSync';
+import type { SyncConfig } from './ui/dataPanel';
 import { IndexedDbStore } from './store/indexedDbStore';
 import { MemoryStore } from './store/memoryStore';
 import { makeId } from './store/types';
@@ -114,6 +116,9 @@ let deviceId = '';
 
 /** 同步设置存在 meta 里 */
 const SYNC_CONFIG_KEY = 'syncConfig';
+
+/** 自动同步的调度器。没配服务端 / 用户关掉了就是 null */
+let autoSync: AutoSync | null = null;
 
 /** 模型渠道 */
 const DEMO_CHANNEL_ID = 'demo';
@@ -265,6 +270,9 @@ async function onNewEvent(event: BoardEvent): Promise<void> {
     console.error('保存事件失败：', err);
     saveState = 'failed';
   }
+
+  // 本机有新内容了 → 让自动同步排一次（会 debounce，连着写不会每笔都发请求）
+  autoSync?.notifyChange();
 
   if (session !== null) session.lastActive = event.createdAt;
   // ⚠️ 只有**属于当前这块板**的事件才更新 boardRecord ——
@@ -1117,31 +1125,126 @@ function makeDataPanel(theStore: Store): DataPanel {
 
     // ── 同步 ──────────────────────────────────────────────────
     loadSyncConfig: async () => {
-      const saved = await theStore.getMeta<{ baseUrl: string; token: string }>(SYNC_CONFIG_KEY);
+      const saved = await theStore.getMeta<SyncConfig>(SYNC_CONFIG_KEY);
       return saved ?? { baseUrl: '', token: '' };
     },
 
     saveSyncConfig: async (config) => {
       await theStore.setMeta(SYNC_CONFIG_KEY, config);
+      applyAutoSync(config);
     },
+
+    autoSyncStatus: () => describeAutoSync(),
 
     onSync: async (config) => {
       if (deviceId === '') return '这台设备还没有 id，稍后再试。';
-
-      const transport = new HttpTransport({
-        baseUrl: config.baseUrl,
-        ...(config.token === '' ? {} : { token: config.token }),
-      });
-      const result = await runSync({ store: theStore, transport, deviceId });
-
-      if (result.merged > 0) {
-        // 拉到了本机没有的东西 → 内存里的日志已经不完整了，重新载入
-        window.setTimeout(() => location.reload(), 1200);
-        return `同步完成：推上去 ${result.pushed} 条，拉回来 ${result.merged} 条新的。正在重新载入…`;
-      }
-      return `同步完成：推上去 ${result.pushed} 条，没有新的要拉回来。${describeCursor(result.cursor)}`;
+      const result = await syncOnce(theStore, config);
+      return describeSyncResult(result);
     },
   });
+}
+
+// ── 同步：手动 + 自动 ─────────────────────────────────────────
+
+/** 跑一次同步（手动和自动走的是同一条路） */
+async function syncOnce(theStore: Store, config: SyncConfig): Promise<SyncResult> {
+  const transport = new HttpTransport({
+    baseUrl: config.baseUrl,
+    ...(config.token === '' ? {} : { token: config.token }),
+  });
+  return runSync({ store: theStore, transport, deviceId });
+}
+
+function describeSyncResult(result: SyncResult): string {
+  const parts = [`推上去 ${result.pushed} 条`];
+  if (result.merged > 0) parts.push(`拉回来 ${result.merged} 条新的`);
+  else parts.push('没有新的要拉回来');
+  if (result.boardsAdded > 0) parts.push(`多出 ${result.boardsAdded} 块板`);
+  return `同步完成：${parts.join('，')}。`;
+}
+
+/**
+ * 同步完之后，把当前这块板的视图刷成最新的。
+ *
+ * ⚠️ 这里**不能重载页面**（原来的手动同步就是重载的）：
+ * 自动同步在后台跑，用户可能正在写字或者读一半 ——
+ * 把整个页面刷掉是绝对不能接受的。改成就地重画。
+ *
+ * 但**不动对话上下文**：那会莫名其妙地把用户正在进行的对话清空。
+ * 系统提示词每一轮都会按最新的板面重新生成，所以模型不会看到过时的板面。
+ */
+async function refreshBoardInPlace(): Promise<void> {
+  const theStore = store;
+  if (theStore === null || boardId === '' || log === null) return;
+
+  const events = await theStore.loadEvents(boardId);
+  if (events.length === log.all.length) return; // 没变化，别白重画
+
+  log = makeLogFor(boardId, events);
+  recompose();
+  renderer.redrawAll();
+}
+
+/** 给用户看的自动同步状态 */
+function describeAutoSync(): string {
+  const last = autoSync?.lastSyncAt ?? null;
+  if (!autoSync?.isRunning) return '自动同步关着 —— 只能自己点「立即同步」。';
+  if (last === null) return '自动同步开着，还没成功同步过。';
+  return `自动同步开着 · 上次成功：${describeLastSync(last)}`;
+}
+
+function describeLastSync(at: number): string {
+  const minutes = Math.floor((Date.now() - at) / 60000);
+  if (minutes < 1) return '刚刚';
+  if (minutes < 60) return `${String(minutes)} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${String(hours)} 小时前`;
+  return `${String(Math.floor(hours / 24))} 天前`;
+}
+
+/**
+ * 按配置开/关自动同步。
+ *
+ * 没填地址 → 不开；用户关掉了 → 不开。其它情况开着。
+ */
+function applyAutoSync(config: SyncConfig): void {
+  const shouldRun = config.baseUrl.trim() !== '' && (config.auto ?? true);
+
+  if (!shouldRun) {
+    autoSync?.stop();
+    autoSync = null;
+    return;
+  }
+
+  if (autoSync !== null && autoSync.isRunning) return; // 已经在跑，别重装
+
+  const theStore = store;
+  if (theStore === null) return;
+
+  autoSync = new AutoSync({
+    sync: async () => {
+      const result = await syncOnce(theStore, config);
+      if (result.merged > 0) await refreshBoardInPlace();
+      return { pushed: result.pushed, pulled: result.pulled, merged: result.merged };
+    },
+    // 失败安静处理 —— 离线是常态，不该弹错，也不该把自动同步关掉
+    onError: (err) => {
+      console.warn('自动同步失败（下次还会试）：', err);
+    },
+    shouldContinueAfterError: (err) => {
+      // 口令不对 / 地址不对这种是配置问题，重试一万次也没用
+      const message = err instanceof Error ? err.message : String(err);
+      const permanent = /401|403|只能用英文字母/.test(message);
+      if (permanent) {
+        setStatus(`自动同步已停：${message}`);
+        return false;
+      }
+      return true;
+    },
+  });
+
+  autoSync.start();
+  void autoSync.runNow('启动');
 }
 
 openHistoryBtn.addEventListener('click', () => {
@@ -1660,6 +1763,10 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
 
   // 一个渠道都没有的话，把用户送到渠道设置面前（只提示一次）
   await guideChannelSetup();
+
+  // 配过同步的话，把自动同步开起来（会立刻先同步一次）
+  const savedSync = await store?.getMeta<SyncConfig>(SYNC_CONFIG_KEY);
+  if (savedSync !== null && savedSync !== undefined) applyAutoSync(savedSync);
 }
 
 // ── 开发期工具 ────────────────────────────────────────────────

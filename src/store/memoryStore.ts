@@ -25,7 +25,9 @@ export class MemoryStore implements Store {
 
   async appendEvents(events: readonly BoardEvent[]): Promise<void> {
     for (const e of events) {
-      // 幂等：同一个 id 重复写入直接忽略
+      // 幂等：同一个 id 重复写入直接忽略。
+      // ⚠️ 这里"忽略"不只是省事 —— `synced` 是**本机状态**，
+      //    服务端回传的事件里它永远是 0，覆盖回去就会把刚打的同步标记冲掉。
       if (!this.events.has(e.id)) this.events.set(e.id, e);
     }
   }
