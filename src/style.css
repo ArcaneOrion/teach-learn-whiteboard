@@ -11,7 +11,6 @@
   --line: #e3e0d8;
   --accent: #2563eb;
   --statusbar-h: 40px;
-  --toolbar-h: 56px;
 
   color-scheme: light;
   font-family: -apple-system, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", system-ui, sans-serif;
@@ -66,16 +65,49 @@ body {
   font-size: 12px;
 }
 
-/* ── 板面 ── */
+/* ── 板面 ─────────────────────────────────────────────────────
+   .stage  只负责定位和裁切
+   .scroller 是真正的滚动容器（内容长了可以滚）
+   .board  随内容长高，墨迹层铺满它
+   ─────────────────────────────────────────────────────────── */
+
 .stage {
   position: relative;
   overflow: hidden;
   background: #fff;
 }
 
+.scroller {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  /* 拖动模式下，指针事件穿透到这一层，手指就能滚板面 */
+  touch-action: pan-y;
+}
+
+.board {
+  position: relative;
+  min-height: 100%;
+}
+
+/* ② 内容层：AI 写的 HTML。
+   pointer-events: none —— 指针事件全交给上面的墨迹层，
+   这样「用笔在 AI 写的字上画圈」不需要任何特殊处理，天然成立。 */
+.layer--content {
+  position: relative;
+  z-index: 1;
+  padding: 18px 16px 45vh; /* 底部留白，方便在最后一块下面继续写 */
+  pointer-events: none;
+}
+
+/* ③ 墨迹层：铺满整块板，在最上面 */
 #ink {
   position: absolute;
   inset: 0;
+  z-index: 2;
   display: block;
   width: 100%;
   height: 100%;
@@ -84,17 +116,124 @@ body {
      表现是"画一笔变成页面滚动"或者"线断断续续" */
   touch-action: none;
 
-  /* 笔迹跟着笔走，不需要过渡动画 */
   cursor: crosshair;
 }
 
+/* 拖动模式：墨迹层不接事件，事件落到下面的 .scroller 上 → 原生滚动 */
+#ink.is-panning {
+  pointer-events: none;
+  cursor: grab;
+}
+
+/* ── AI 写的板面内容 ─────────────────────────────────────────
+   给一套默认排版，AI 就不必自己写样式（它写的是内容，不是 CSS）
+   ─────────────────────────────────────────────────────────── */
+
+.block {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid #c7d2fe;
+  border-radius: 10px;
+  background: #fcfcfa;
+  font-size: 15px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.block:last-child {
+  margin-bottom: 0;
+}
+
+.block > :first-child {
+  margin-top: 0;
+}
+
+.block > :last-child {
+  margin-bottom: 0;
+}
+
+.block h1,
+.block h2,
+.block h3 {
+  margin: 14px 0 8px;
+  line-height: 1.35;
+}
+
+.block h1 { font-size: 19px; }
+.block h2 { font-size: 17px; }
+.block h3 { font-size: 15.5px; }
+
+.block p {
+  margin: 8px 0;
+}
+
+.block ul,
+.block ol {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+
+.block table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 14px;
+}
+
+.block th,
+.block td {
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.block th {
+  background: #f4f2ec;
+}
+
+.block code {
+  padding: 1.5px 6px;
+  border-radius: 5px;
+  background: #f1efe9;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+.block pre {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f1efe9;
+  overflow-x: auto;
+}
+
+.block pre code {
+  padding: 0;
+  background: none;
+}
+
+/* 公式（MathML）由浏览器原生渲染，这里只调一下大小与间距 */
+.block math {
+  font-size: 1.12em;
+}
+
+.block math[display="block"] {
+  display: block;
+  margin: 12px 0;
+  text-align: center;
+}
+
+.block svg {
+  max-width: 100%;
+  height: auto;
+}
+
 /* ── 工具栏 ── */
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 14px;
-  min-height: var(--toolbar-h);
   padding: 8px 12px;
   padding-bottom: calc(8px + env(safe-area-inset-bottom));
   background: var(--panel);
@@ -131,6 +270,17 @@ body {
   font-weight: 600;
 }
 
+/* 临时按钮：M1 验证用，接上真模型后删掉 */
+.toolbar__group--demo {
+  padding-left: 10px;
+  border-left: 1px dashed var(--line);
+}
+
+.btn--demo {
+  border-style: dashed;
+  color: var(--muted);
+}
+
 .swatch {
   width: 30px;
   height: 30px;
@@ -147,10 +297,11 @@ body {
 }
 
 /* ── 调试读数 ── */
+
 .hud {
   position: fixed;
   left: 10px;
-  bottom: calc(var(--toolbar-h) + env(safe-area-inset-bottom) + 10px);
+  bottom: 10px;
   max-width: calc(100vw - 20px);
   padding: 6px 10px;
   border: 1px solid var(--line);
@@ -161,5 +312,5 @@ body {
   font-size: 11px;
   line-height: 1.5;
   pointer-events: none;
-  white-space: normal;
+  z-index: 10;
 }

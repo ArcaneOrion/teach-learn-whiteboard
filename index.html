@@ -14,12 +14,27 @@
     <!-- 状态条：一行，永远在 -->
     <header class="statusbar">
       <span class="statusbar__title">共写白板</span>
-      <span class="statusbar__meta" id="status">M0 · 墨迹层</span>
+      <span class="statusbar__meta" id="status">M1 · 事件日志</span>
     </header>
 
-    <!-- 板面。canvas 绝对定位铺满，尺寸由 TS 按 devicePixelRatio 设定 -->
+    <!--
+      板面分三层（技术文档 §5.1）：
+        ① 背景层  —— 板面底色
+        ② 内容层  —— AI 写的 HTML（div#content）
+        ③ 墨迹层  —— 用户的笔迹（canvas#ink，在最上面）
+
+      墨迹在最上层，所以能在 AI 写的东西上直接圈画；
+      而 AI 更新内容层时不会碰墨迹层，用户的笔迹不会消失。
+    -->
     <main class="stage" id="stage">
-      <canvas id="ink"></canvas>
+      <div class="scroller" id="scroller">
+        <div class="board" id="board">
+          <!-- ② 内容层 -->
+          <div class="layer layer--content" id="content"></div>
+          <!-- ③ 墨迹层 -->
+          <canvas id="ink"></canvas>
+        </div>
+      </div>
     </main>
 
     <!-- 工具栏 -->
@@ -27,6 +42,8 @@
       <div class="toolbar__group" role="group" aria-label="工具">
         <button class="btn is-active" data-tool="pen" type="button">✏️ 笔</button>
         <button class="btn" data-tool="eraser" type="button">🧽 橡皮</button>
+        <!-- 拖动模式：让指针事件穿透到下面的滚动容器，就能用手指滚板面了 -->
+        <button class="btn" data-tool="pan" type="button">✋ 拖动</button>
       </div>
 
       <div class="toolbar__group" role="group" aria-label="颜色">
@@ -46,9 +63,16 @@
         <button class="btn" id="undo" type="button">↩️ 撤销</button>
         <button class="btn" id="clear" type="button">🗑 清空</button>
       </div>
+
+      <!-- ⚠️ 临时：M1 用来验证「AI 写板面」这条链路，M2 接上真模型后删掉 -->
+      <div class="toolbar__group toolbar__group--demo" role="group" aria-label="假 AI（临时）">
+        <button class="btn btn--demo" id="demo-append" type="button">🤖 追加</button>
+        <button class="btn btn--demo" id="demo-rewrite" type="button">✏️ 改写</button>
+        <button class="btn btn--demo" id="demo-remove" type="button">🧹 擦掉</button>
+      </div>
     </footer>
 
-    <!-- M0 调试读数：用来验证输入质量（有没有压感、DPR 对不对、采样点密不密）。M1 之后会去掉 -->
+    <!-- 调试读数：验证输入质量与事件日志。M4 之后会去掉 -->
     <div class="hud" id="hud" aria-live="off"></div>
 
     <script type="module" src="/src/main.ts"></script>
