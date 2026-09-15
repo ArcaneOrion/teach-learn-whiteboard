@@ -65,6 +65,7 @@ import { runTurn, type ToolOutcome } from './ai/agent';
 import { explainError } from './ai/errors';
 import { boardTools, TOOL_ASK_USER, TOOL_BOARD_WRITE, TOOL_SEARCH_MATERIALS } from './ai/tools';
 import { describeUserTurn, systemPrompt } from './ai/prompt';
+import { foldSystemIntoUser, trimMessages } from './ai/context';
 import type { DemoChannel } from './ai/demoChannel';
 
 // ── 取元素 ────────────────────────────────────────────────────
@@ -691,7 +692,7 @@ async function sendTurn(rawText: string, snapshot: PendingSnapshot | null = null
   // ② 系统提示词每轮刷新 —— 区域列表会变，模型要知道现在能 set 哪些区域
   const regions = board.blocks.map((b) => b.region).filter((r): r is string => r !== null);
   const materialCount = store === null ? 0 : (await store.listDocs()).length;
-  conversation.systemPrompt = systemPrompt({
+  const sp = systemPrompt({
     boardTitle: board.title,
     regions,
     materialCount,
@@ -730,11 +731,23 @@ async function sendTurn(rawText: string, snapshot: PendingSnapshot | null = null
     return;
   }
 
+  /**
+   * ⑤ 组请求。**不发 `system` 角色** —— 不少 OpenAI 兼容端点（实测 ModelScope）
+   *    对 system 兼容得不好，会直接报错。把提示词折成一条普通 user 消息放在
+   *    最前面，是所有端点都认的老格式。
+   *
+   *    折出来的是拷贝，持久历史里不带这句话，所以每轮重折不会越折越多。
+   *    顺手把截断也真正用上：历史不截的话，板聊得越久越贵、越慢，最后爆窗口。
+   */
+  const history = trimMessages(conversation.messages);
+  const folded = foldSystemIntoUser(history, sp);
+  const request: Context = { messages: folded.messages, tools: boardTools };
+
   try {
     const result = await runTurn({
       models,
       model,
-      context: conversation,
+      context: request,
       execute: executeTool,
       signal,
       onToolCall: (name) => {
@@ -758,6 +771,11 @@ async function sendTurn(rawText: string, snapshot: PendingSnapshot | null = null
       setStatus(`出错：${explainError(err, runtime())}`);
     }
   } finally {
+    // 这一轮新产生的消息（模型回复、工具结果）要归档回持久历史。
+    // 放在 finally：中途「停下」也一样，否则模型下一轮就不知道刚才写到哪了。
+    // 开头那 N 条是我们临时拼进去的（折叠的提示词 + 截断后的历史），跳过它们。
+    const fresh = request.messages.slice(folded.messages.length);
+    conversation.messages = [...history, ...fresh];
     abortController = null;
     setRunning(false);
   }

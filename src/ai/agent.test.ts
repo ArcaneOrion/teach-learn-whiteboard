@@ -19,7 +19,7 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 
 import { runTurn, type ToolOutcome } from './agent';
-import { assembleContext, trimMessages } from './context';
+import { assembleContext, foldSystemIntoUser, trimMessages } from './context';
 import { TOOL_ASK_USER, TOOL_BOARD_WRITE, boardTools } from './tools';
 
 /** 建一个「假模型 + 剧本」的测试台 */
@@ -276,14 +276,83 @@ describe('上下文截断', () => {
 });
 
 describe('assembleContext', () => {
-  it('系统提示词和工具都装配进去', () => {
-    const ctx = assembleContext({ systemPrompt: 'S', messages: [] });
-    expect(ctx.systemPrompt).toBe('S');
-    expect(ctx.messages).toEqual([]);
+  it('★ 不发 system 角色 —— 提示词被折成一条 user 消息', () => {
+    const ctx = assembleContext({
+      systemPrompt: 'S',
+      messages: [{ role: 'user', content: 'q', timestamp: 1 } as Context['messages'][number]],
+    });
+    // 这是这次改的重点：`ctx.systemPrompt` 有值 pi-ai 就会发 role:"system"，
+    // 而有的兼容端点（实测 ModelScope）不认它
+    expect(ctx.systemPrompt).toBeUndefined();
+    expect(ctx.messages).toHaveLength(1);
+    expect(ctx.messages[0]?.role).toBe('user');
   });
 
   it('🔲 预留的记忆参数现在就存在，v1 传空数组也不报错', () => {
     const ctx = assembleContext({ systemPrompt: 'S', messages: [], memories: [] });
-    expect(ctx.messages).toEqual([]);
+    expect(ctx.messages).toHaveLength(1); // 提示词自己占一条
+    expect(ctx.systemPrompt).toBeUndefined();
+  });
+});
+
+describe('foldSystemIntoUser', () => {
+  const msg = (role: 'user' | 'assistant', content: string, ts: number) =>
+    ({ role, content, timestamp: ts }) as Context['messages'][number];
+
+  it('折进已有 user 消息的开头，且**不新增条数**', () => {
+    const history = [msg('user', '什么是力?', 1), msg('assistant', 'F=ma', 2)];
+    const out = foldSystemIntoUser(history, '你是老师');
+
+    expect(out.inserted).toBe(0);
+    expect(out.messages).toHaveLength(2);
+
+    const first = out.messages[0];
+    expect(first?.role).toBe('user');
+    expect((first?.content as string)).toContain('你是老师');
+    expect((first?.content as string)).toContain('什么是力?');
+  });
+
+  it('★ 原数组里的消息**不能被改动** —— 否则提示词会存进历史，越积越多', () => {
+    const history = [msg('user', '原始问题', 1)];
+    const snapshot = JSON.parse(JSON.stringify(history));
+
+    foldSystemIntoUser(history, '提示词');
+
+    expect(history).toEqual(snapshot);
+  });
+
+  it('历史为空时另插一条，inserted=1（调用方靠它跳过这条不归档）', () => {
+    const out = foldSystemIntoUser([], '提示词');
+    expect(out.inserted).toBe(1);
+    expect(out.messages).toHaveLength(1);
+    expect(out.messages[0]?.role).toBe('user');
+    expect(out.messages[0]?.content).toBe('提示词');
+  });
+
+  it('user 消息带图片块时，把文字**并进已有的文字块**，不把图片挤到后面', () => {
+    const withImage = {
+      role: 'user' as const,
+      timestamp: 1,
+      content: [
+        { type: 'text' as const, text: '看这张图' },
+        { type: 'image' as const, data: 'xxxx', mimeType: 'image/png' },
+      ],
+    } as Context['messages'][number];
+
+    const out = foldSystemIntoUser([withImage], '提示词');
+    expect(out.inserted).toBe(0);
+
+    const content = out.messages[0]?.content as { type: string; text?: string }[];
+    // 还是两块：文字块被扩写了，图片块原地不动
+    expect(content).toHaveLength(2);
+    expect(content[0]?.type).toBe('text');
+    expect(content[0]?.text).toContain('提示词');
+    expect(content[0]?.text).toContain('看这张图');
+    expect(content[1]?.type).toBe('image');
+  });
+
+  it('提示词是空白等于没说，原样返回', () => {
+    const history = [msg('user', 'q', 1)];
+    expect(foldSystemIntoUser(history, '   ').messages).toHaveLength(1);
   });
 });
