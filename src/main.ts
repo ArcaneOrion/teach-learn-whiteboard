@@ -1471,7 +1471,15 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
       },
       onCancel() {
         renderer.cancelActive();
+        // 一笔被丢弃通常意味着"用户改成别的手势了"（两指拖动、笔接管手掌）
+        // —— 长按计时也该跟着取消，不然会莫名弹出反馈菜单
+        cancelPress();
         scheduleHud();
+      },
+      // 两指拖动 → 滚板面。方向和手指一致（往下拖 = 往回看）
+      onPan: (dx, dy) => {
+        scroller.scrollTop -= dy;
+        scroller.scrollLeft -= dx;
       },
     },
     () => inkStyle,

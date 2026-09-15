@@ -29,6 +29,13 @@ export interface InkHandlers {
   onEnd(stroke: Stroke): void;
   /** 这一笔被丢弃（掌托、系统打断） */
   onCancel(): void;
+  /**
+   * 两指拖动。调用方负责滚动板面。
+   *
+   * 为什么要有它：在平板上想往下看，如果必须先切到「拖动」工具才能滚，
+   * 那写字的时候就会一直被打断。真实笔记应用都是**两指滑动**。
+   */
+  onPan?: (dx: number, dy: number) => void;
 }
 
 /**
@@ -71,6 +78,42 @@ export function attachInkInput(
   /** 最近一次收到笔事件的时间戳 */
   let lastPenAt = Number.NEGATIVE_INFINITY;
 
+  /**
+   * 当前按下的所有指针（pointerId → 设备类型）。
+   *
+   * 为什么要记全部而不是只记一个：判断「这是两根手指还是一只手掌」必须知道总数。
+   * 掌托抑制是给**单指**准备的 —— 两根手指同时落下是明确的手势意图，
+   * 不该被"笔刚用过"挡掉。否则写完字想两指滚一下，永远是滚不动。
+   */
+  const pointers = new Map<number, PointerEvent['pointerType']>();
+
+  /** 正在两指拖动 */
+  let panning = false;
+  let panX = 0;
+  let panY = 0;
+
+  function touchCount(): number {
+    let n = 0;
+    for (const type of pointers.values()) if (type === 'touch') n += 1;
+    return n;
+  }
+
+  /** 结束当前这一笔（如果拖动手势要接管的话） */
+  function dropActiveStroke(): void {
+    if (active === null) return;
+    const pointerId = activeId;
+    active = null;
+    activeId = null;
+    if (pointerId !== null) {
+      try {
+        canvas.releasePointerCapture(pointerId);
+      } catch {
+        // 忽略
+      }
+    }
+    handlers.onCancel();
+  }
+
   function toPoint(e: PointerEvent, source: StrokeSource): Point {
     const r = canvas.getBoundingClientRect();
     return {
@@ -84,17 +127,30 @@ export function attachInkInput(
 
   function onPointerDown(e: PointerEvent): void {
     const source = sourceOf(e);
+    pointers.set(e.pointerId, e.pointerType);
 
     if (source === 'pen') lastPenAt = e.timeStamp;
 
-    // ① 掌托：笔刚用过，忽略手指
+    // ① 两根手指同时按着 = 拖动板面。
+    //    注意这条要**排在掌托抑制前面** —— 见 pointers 那段的说明
+    if (touchCount() >= 2) {
+      if (!panning) {
+        panning = true;
+        panX = e.clientX;
+        panY = e.clientY;
+        // 两根手指落下时，第一根可能已经点出了一个墨点，撤掉它
+        dropActiveStroke();
+      }
+      e.preventDefault();
+      return;
+    }
+
+    // ② 掌托：笔刚用过，忽略**单指**触摸
     if (source === 'touch' && e.timeStamp - lastPenAt < PALM_GRACE_MS) return;
 
-    // 手掌先落下、笔后落下 → 把已经开始的触摸笔画丢掉，改由笔来画
+    // ③ 手掌先落下、笔后落下 → 把已经开始的触摸笔画丢掉，改由笔来画
     if (source === 'pen' && active !== null && active.source === 'touch') {
-      active = null;
-      activeId = null;
-      handlers.onCancel();
+      dropActiveStroke();
     }
 
     // 已经有一笔在进行中（多指同时按下时只认第一根）
@@ -102,7 +158,7 @@ export function attachInkInput(
 
     e.preventDefault();
 
-    // ③ 指针捕获：滑出画布也继续收事件
+    // 指针捕获：滑出画布也继续收事件
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch {
@@ -122,11 +178,21 @@ export function attachInkInput(
   }
 
   function onPointerMove(e: PointerEvent): void {
+    // 拖动中：只算位移，不画
+    if (panning) {
+      const dx = e.clientX - panX;
+      const dy = e.clientY - panY;
+      panX = e.clientX;
+      panY = e.clientY;
+      handlers.onPan?.(dx, dy);
+      return;
+    }
+
     if (active === null || activeId !== e.pointerId) return;
     e.preventDefault();
 
     const source = active.source;
-    // ② 合并采样：一帧内其实有多个采样点，不取的话快速书写会变成折线（锯齿感）
+    // 合并采样：一帧内其实有多个采样点，不取的话快速书写会变成折线（锯齿感）
     const raw = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
     const list: PointerEvent[] = raw.length > 0 ? raw : [e];
 
@@ -138,6 +204,11 @@ export function attachInkInput(
   }
 
   function finish(e: PointerEvent, cancelled: boolean): void {
+    pointers.delete(e.pointerId);
+
+    // 手指少于两根 → 拖动结束
+    if (panning && touchCount() < 2) panning = false;
+
     if (active === null || activeId !== e.pointerId) return;
     const stroke = active;
     active = null;
@@ -174,18 +245,9 @@ export function attachInkInput(
     },
 
     abort() {
-      if (active === null) return;
-      const pointerId = activeId;
-      active = null;
-      activeId = null;
-      if (pointerId !== null) {
-        try {
-          canvas.releasePointerCapture(pointerId);
-        } catch {
-          // 忽略
-        }
-      }
-      handlers.onCancel();
+      pointers.clear();
+      panning = false;
+      dropActiveStroke();
     },
   };
 }
