@@ -1,0 +1,64 @@
+# ─────────────────────────────────────────────────────────────
+#  .gitignore — 告诉 git「哪些文件不要进仓库」
+#
+#  规则：能重新生成的、体积大的、含密钥的，一律不进仓库。
+# ─────────────────────────────────────────────────────────────
+
+# ── 依赖（能重新装回来，不该进仓库）──
+node_modules/
+.pnpm-store/
+
+# ── 构建产物（能重新编译出来）──
+dist/
+dist-ssr/
+*.tsbuildinfo
+
+# ── ★ 密钥与环境变量：绝对不能进仓库 ──
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+
+# ── ★ 安卓签名密钥：绝对不能进仓库（泄露 = 别人能冒名发布你的 App）──
+*.jks
+*.keystore
+keystore.properties
+
+# ── Capacitor 生成 / 同步产物 ──
+# android/ 整体要入库（你可能会改 AndroidManifest），但这些子目录是生成的
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/src/main/res/xml/config.xml
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/capacitor-cordova-android-plugins/
+android/app/src/main/assets/capacitorjs/
+
+# ── 编辑器与系统文件 ──
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# ── 日志与缓存 ──
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+.cache/
+.vite/
+coverage/
+
+# ── 本地临时文件 ──
+tmp/
+temp/
+*.tmp
