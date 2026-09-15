@@ -38,6 +38,16 @@
     <!-- 选项条：AI 出了选项才出现。点选会作为一条真实的用户消息回到对话里 -->
     <div class="choicebar" id="choicebar" hidden></div>
 
+    <!--
+      待发送的截图。按产品文档的设计：点「让 AI 看」→ 截图 → 写上你想说的 → 发送，
+      截图和文字**一起**作为一条用户消息发出去。
+    -->
+    <div class="pending" id="pending" hidden>
+      <img class="pending__thumb" id="pending-thumb" alt="待发送的截图" />
+      <span class="pending__hint">截图已就绪 —— 写上你想说的，然后发送（也可以直接发）</span>
+      <button class="btn" id="pending-clear" type="button">取消</button>
+    </div>
+
     <!-- 输入条：手写适合短标注，长段落还是打字快（产品文档 §4 主张一） -->
     <div class="inputbar">
       <textarea
@@ -46,6 +56,7 @@
         rows="1"
         placeholder="说点什么…（AI 会把回答写到板上）"
       ></textarea>
+      <button class="btn" id="look" type="button" title="把板面（含你的笔迹）拍下来发给 AI">👁 让 AI 看</button>
       <button class="btn btn--primary" id="send" type="button">发送</button>
     </div>
 

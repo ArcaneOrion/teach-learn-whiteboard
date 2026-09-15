@@ -35,6 +35,7 @@ import { composeBoard, lastStroke, totalPoints, type BoardState } from './core/b
 import { resolveSession, sessionDuration } from './core/session';
 import { ContentLayer } from './ui/contentLayer';
 import { SettingsPanel } from './ui/settingsPanel';
+import { blobToBase64, blobToDataUrl, rasterizeBoard } from './ui/rasterize';
 import { IndexedDbStore } from './store/indexedDbStore';
 import { MemoryStore } from './store/memoryStore';
 import { makeId } from './store/types';
@@ -65,6 +66,10 @@ const undoBtn = must<HTMLButtonElement>('#undo');
 const clearBtn = must<HTMLButtonElement>('#clear');
 const sayInput = must<HTMLTextAreaElement>('#say');
 const sendBtn = must<HTMLButtonElement>('#send');
+const lookBtn = must<HTMLButtonElement>('#look');
+const pendingBar = must<HTMLElement>('#pending');
+const pendingThumb = must<HTMLImageElement>('#pending-thumb');
+const pendingClearBtn = must<HTMLButtonElement>('#pending-clear');
 const choiceBar = must<HTMLElement>('#choicebar');
 const channelSelect = must<HTMLSelectElement>('#channel');
 const openSettingsBtn = must<HTMLButtonElement>('#open-settings');
@@ -99,6 +104,21 @@ const conversation: Context = { messages: [] };
 conversation.tools = boardTools;
 
 let running = false;
+
+/**
+ * 已经拍好、等着和文字一起发出去的截图。
+ *
+ * 按产品文档的设计：点「让 AI 看」→ 立刻截图 → 输入条打开 → 写完点发送，
+ * 截图和文字**一起**作为一条用户消息发出去（不是两条）。
+ */
+interface PendingSnapshot {
+  attachmentId: string;
+  blob: Blob;
+  mime: string;
+  dataUrl: string;
+}
+
+let pendingSnapshot: PendingSnapshot | null = null;
 
 const renderer = new InkRenderer(canvas, () => board.strokes);
 const content = new ContentLayer(contentEl);
@@ -313,8 +333,71 @@ function activeModel(): Model<Api> | null {
 }
 
 function updateSendEnabled(): void {
-  sendBtn.disabled = running || activeModel() === null;
+  // 只要「有话说」或者「有截图」就能发 —— 用户可能只是画了个圈，不想打字
+  const canSend =
+    !running &&
+    activeModel() !== null &&
+    (sayInput.value.trim() !== '' || pendingSnapshot !== null);
+  sendBtn.disabled = !canSend;
   sayInput.disabled = running;
+  lookBtn.disabled = running;
+}
+
+/** 设置/清空「待发送的截图」 */
+function setPending(next: PendingSnapshot | null): void {
+  pendingSnapshot = next;
+  if (next === null) {
+    pendingBar.hidden = true;
+    pendingThumb.removeAttribute('src');
+  } else {
+    pendingThumb.src = next.dataUrl;
+    pendingBar.hidden = false;
+  }
+  updateSendEnabled();
+}
+
+/**
+ * 「让 AI 看」—— 把板面（含用户笔迹）拍成图，存在附件表里，等着一并发送。
+ *
+ * 图片**立刻落盘**而不是留在内存：这样即使接下来 App 被杀掉，截图也不会丢，
+ * 而且 M4 做检索时它已经在那儿了。
+ */
+async function captureSnapshot(): Promise<void> {
+  if (running || store === null || session === null || boardId === '') return;
+
+  lookBtn.disabled = true;
+  setStatus('正在拍板面…');
+  try {
+    const shot = await rasterizeBoard({ board: boardEl, viewport: scroller });
+    const mime = shot.blob.type === '' ? 'image/png' : shot.blob.type;
+    const attachmentId = makeId('att');
+
+    await store.putAttachment(
+      {
+        id: attachmentId,
+        userId: 'local',
+        sessionId: session.id,
+        boardId,
+        kind: 'snapshot',
+        mime,
+        bytes: shot.blob.size,
+        width: shot.width,
+        height: shot.height,
+        caption: null, // M4 才生成图说（那是让截图能被文字搜索到的关键）
+        createdAt: Date.now(),
+      },
+      shot.blob,
+    );
+
+    setPending({ attachmentId, blob: shot.blob, mime, dataUrl: await blobToDataUrl(shot.blob) });
+    setStatus(`板面已拍好（${Math.max(1, Math.round(shot.blob.size / 1024))} KB）· 写上你想说的再发送`);
+    sayInput.focus();
+  } catch (err) {
+    console.error('拍板面失败：', err);
+    setStatus(`拍板面失败：${explainError(err, runtime())}`);
+  } finally {
+    lookBtn.disabled = false;
+  }
 }
 
 channelSelect.addEventListener('change', () => {
@@ -402,35 +485,62 @@ function scrollToBottom(): void {
   scroller.scrollTop = scroller.scrollHeight;
 }
 
-async function sendTurn(rawText: string): Promise<void> {
+async function sendTurn(rawText: string, snapshot: PendingSnapshot | null = null): Promise<void> {
   if (running) return;
   const theLog = log;
   const model = activeModel();
   if (theLog === null || model === null) return;
 
   const text = rawText.trim();
-  if (text === '') return;
+  // 没打字也不算错 —— 用户可能只是画了个圈就想让 AI 看
+  if (text === '' && snapshot === null) return;
 
   running = true;
   updateSendEnabled();
-  setStatus('正在思考…');
+  setStatus(snapshot === null ? '正在思考…' : '正在把截图发给模型…');
 
-  // ① 用户说的话先进事件日志（它是板上发生的事，不是聊天记录）
-  theLog.say(describeUserTurn({ text, strokeCount: 0 }));
+  const textForModel =
+    text !== ''
+      ? describeUserTurn({ text, strokeCount: 0 })
+      : '（用户没有打字，只发了一张板面截图 —— 留意他在上面圈了什么、写了什么）';
+
+  // ① 先记事件。截图和文字是同一次发送，所以只记**一条**
+  if (snapshot === null) {
+    theLog.say(textForModel);
+  } else {
+    theLog.snapshot({ attachmentId: snapshot.attachmentId, text: text === '' ? null : text });
+  }
   recompose();
 
   // ② 系统提示词每轮刷新 —— 区域列表会变，模型要知道现在能 set 哪些区域
   const regions = board.blocks.map((b) => b.region).filter((r): r is string => r !== null);
   conversation.systemPrompt = systemPrompt({ boardTitle: board.title, regions });
 
-  conversation.messages.push({
-    role: 'user',
-    content: text,
-    timestamp: Date.now(),
-  });
+  // ③ 用户消息。有截图时，文字和图片放在**同一条消息**里
+  try {
+    if (snapshot === null) {
+      conversation.messages.push({ role: 'user', content: textForModel, timestamp: Date.now() });
+    } else {
+      const base64 = await blobToBase64(snapshot.blob);
+      conversation.messages.push({
+        role: 'user',
+        content: [
+          { type: 'text', text: textForModel },
+          { type: 'image', data: base64, mimeType: snapshot.mime },
+        ],
+        timestamp: Date.now(),
+      });
+    }
+  } catch (err) {
+    console.error('准备截图失败：', err);
+    setStatus(`出错：${explainError(err, runtime())}`);
+    running = false;
+    updateSendEnabled();
+    return;
+  }
 
-  // ③ 演示渠道需要按用户输入重新装填剧本
-  if (activeChannelId === DEMO_CHANNEL_ID && demo !== null) demo.arm(text);
+  // ④ 演示渠道需要按用户输入重新装填剧本
+  if (activeChannelId === DEMO_CHANNEL_ID && demo !== null) demo.arm(textForModel);
 
   const models = registry?.models;
   if (models === undefined) {
@@ -489,8 +599,7 @@ function paintChoices(): void {
       theLog.answer(choice.id);
       recompose();
       void sendTurn(choice.label);
-    });
-    choiceBar.append(btn);
+    });    choiceBar.append(btn);
   }
 }
 
@@ -499,22 +608,35 @@ sayInput.addEventListener('keydown', (e) => {
   // 回车发送，Shift+回车换行
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    const text = sayInput.value;
-    sayInput.value = '';
-    void sendTurn(text);
+    doSend();
   }
 });
 
 sayInput.addEventListener('input', () => {
   sayInput.style.height = 'auto';
   sayInput.style.height = `${Math.min(sayInput.scrollHeight, 140)}px`;
+  updateSendEnabled();
 });
 
-sendBtn.addEventListener('click', () => {
+/** 统一走这里：取出文字和待发送的截图，清空界面，然后发出去 */
+function doSend(): void {
   const text = sayInput.value;
+  const snapshot = pendingSnapshot;
   sayInput.value = '';
   sayInput.style.height = 'auto';
-  void sendTurn(text);
+  setPending(null); // 先清空界面，截图已经被 snapshot 变量接住了
+  void sendTurn(text, snapshot);
+}
+
+sendBtn.addEventListener('click', doSend);
+
+lookBtn.addEventListener('click', () => {
+  void captureSnapshot();
+});
+
+pendingClearBtn.addEventListener('click', () => {
+  setPending(null);
+  setStatus('已取消这张截图');
 });
 
 // ── 工具栏 ────────────────────────────────────────────────────

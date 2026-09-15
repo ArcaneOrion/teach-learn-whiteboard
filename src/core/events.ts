@@ -171,4 +171,23 @@ export class EventLog {
   clearInk(): EventOf<'ink.clear'> {
     return this.append('user', 'ink.clear', null);
   }
+
+  // ── 视觉回流 ────────────────────────────────────────────────
+
+  /**
+   * 记录「把板面拍成图发给模型」这件事。
+   *
+   * 图片本体不进事件日志（会把它撑爆），只存 attachmentId。
+   */
+  snapshot(params: {
+    attachmentId: string;
+    text: string | null;
+    caption?: string | null;
+  }): EventOf<'board.snapshot'> {
+    return this.append('user', 'board.snapshot', {
+      attachmentId: params.attachmentId,
+      text: params.text,
+      caption: params.caption ?? null,
+    });
+  }
 }

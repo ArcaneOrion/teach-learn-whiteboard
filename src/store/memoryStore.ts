@@ -7,12 +7,13 @@
 
 import type { BoardEvent } from '../core/types';
 import type { SessionRecord } from '../core/session';
-import type { BoardRecord, Store } from './types';
+import type { AttachmentRecord, BoardRecord, Store } from './types';
 
 export class MemoryStore implements Store {
   private readonly events = new Map<string, BoardEvent>();
   private readonly boards = new Map<string, BoardRecord>();
   private readonly sessions = new Map<string, SessionRecord>();
+  private readonly attachments = new Map<string, { record: AttachmentRecord; blob: Blob }>();
   private readonly meta = new Map<string, unknown>();
 
   async init(): Promise<void> {
@@ -67,6 +68,33 @@ export class MemoryStore implements Store {
     return all[0] ?? null;
   }
 
+  // ── 附件 ────────────────────────────────────────────────────
+
+  async putAttachment(record: AttachmentRecord, blob: Blob): Promise<void> {
+    this.attachments.set(record.id, { record: { ...record }, blob });
+  }
+
+  async getAttachment(id: string): Promise<{ record: AttachmentRecord; blob: Blob } | null> {
+    return this.attachments.get(id) ?? null;
+  }
+
+  async listAttachments(boardId: string): Promise<AttachmentRecord[]> {
+    return [...this.attachments.values()]
+      .map((a) => a.record)
+      .filter((r) => r.boardId === boardId)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  async deleteAttachment(id: string): Promise<void> {
+    this.attachments.delete(id);
+  }
+
+  async attachmentBytes(): Promise<number> {
+    let total = 0;
+    for (const a of this.attachments.values()) total += a.record.bytes;
+    return total;
+  }
+
   async getMeta<T>(key: string): Promise<T | null> {
     return (this.meta.get(key) as T | undefined) ?? null;
   }
@@ -79,6 +107,7 @@ export class MemoryStore implements Store {
     this.events.clear();
     this.boards.clear();
     this.sessions.clear();
+    this.attachments.clear();
     this.meta.clear();
   }
 }

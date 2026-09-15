@@ -14,15 +14,64 @@
 
 import type { BoardEvent } from '../core/types';
 import type { SessionRecord } from '../core/session';
-import type { BoardRecord, Store } from './types';
+import type { AttachmentRecord, BoardRecord, Store } from './types';
 
 const DB_NAME = 'teach-learn-whiteboard';
-const DB_VERSION = 1;
+/**
+ * ⚠️ 加对象仓库（object store）必须同时**加版本号**，否则升级回调不会跑，
+ * 新仓库根本不会被创建 —— 而且**不报错**，直到你第一次用到它才炸。
+ *
+ * v1：events / boards / sessions / meta
+ * v2：+ attachments（截图）
+ * v3：修一个自己造成的事故 —— 见下方 ensureSchema 的注释
+ */
+const DB_VERSION = 3;
 
 const STORE_EVENTS = 'events';
 const STORE_BOARDS = 'boards';
 const STORE_SESSIONS = 'sessions';
 const STORE_META = 'meta';
+const STORE_ATTACHMENTS = 'attachments';
+
+/** 附件在库里的实际形态：元数据 + 二进制放在同一条记录里 */
+interface StoredAttachment extends AttachmentRecord {
+  blob: Blob;
+}
+
+/**
+ * 建表。**写成幂等**：每缺少哪个仓库就补哪个。
+ *
+ * ⚠️ 为什么要这样写 —— 我踩过一次：
+ *   加附件仓库时，我分两步改代码：先升版本号、再加建仓库的语句。
+ *   两步之间 dev server 热重载了，于是数据库**升到了 v2 但仓库没建**。
+ *   版本号已经是 2 了，以后再也不会触发升级 —— 那个库就永远缺一个仓库，
+ *   直到第一次用到它才炸（`One of the specified object stores was not found`）。
+ *
+ * 幂等的写法 + 版本号往前走一格，这种坏状态就能自愈。
+ */
+function ensureSchema(db: IDBDatabase): void {
+  if (!db.objectStoreNames.contains(STORE_EVENTS)) {
+    const events = db.createObjectStore(STORE_EVENTS, { keyPath: 'id' });
+    // 按「板 + 板内序号」取值，正好是折叠需要的顺序
+    events.createIndex('by_board_seq', ['boardId', 'seq']);
+    events.createIndex('by_synced', 'synced');
+  }
+  if (!db.objectStoreNames.contains(STORE_BOARDS)) {
+    const boards = db.createObjectStore(STORE_BOARDS, { keyPath: 'id' });
+    boards.createIndex('by_updatedAt', 'updatedAt');
+  }
+  if (!db.objectStoreNames.contains(STORE_SESSIONS)) {
+    const sessions = db.createObjectStore(STORE_SESSIONS, { keyPath: 'id' });
+    sessions.createIndex('by_startedAt', 'startedAt');
+  }
+  if (!db.objectStoreNames.contains(STORE_META)) {
+    db.createObjectStore(STORE_META, { keyPath: 'key' });
+  }
+  if (!db.objectStoreNames.contains(STORE_ATTACHMENTS)) {
+    const attachments = db.createObjectStore(STORE_ATTACHMENTS, { keyPath: 'id' });
+    attachments.createIndex('by_board_createdAt', ['boardId', 'createdAt']);
+  }
+}
 
 /** 把 IDBRequest 包成 Promise */
 function req<T>(request: IDBRequest<T>): Promise<T> {
@@ -55,25 +104,7 @@ export class IndexedDbStore implements Store {
       const open = indexedDB.open(DB_NAME, DB_VERSION);
 
       open.onupgradeneeded = () => {
-        const db = open.result;
-
-        if (!db.objectStoreNames.contains(STORE_EVENTS)) {
-          const events = db.createObjectStore(STORE_EVENTS, { keyPath: 'id' });
-          // 按「板 + 板内序号」取值，正好是折叠需要的顺序
-          events.createIndex('by_board_seq', ['boardId', 'seq']);
-          events.createIndex('by_synced', 'synced');
-        }
-        if (!db.objectStoreNames.contains(STORE_BOARDS)) {
-          const boards = db.createObjectStore(STORE_BOARDS, { keyPath: 'id' });
-          boards.createIndex('by_updatedAt', 'updatedAt');
-        }
-        if (!db.objectStoreNames.contains(STORE_SESSIONS)) {
-          const sessions = db.createObjectStore(STORE_SESSIONS, { keyPath: 'id' });
-          sessions.createIndex('by_startedAt', 'startedAt');
-        }
-        if (!db.objectStoreNames.contains(STORE_META)) {
-          db.createObjectStore(STORE_META, { keyPath: 'key' });
-        }
+        ensureSchema(open.result);
       };
 
       open.onsuccess = () => resolve(open.result);
@@ -183,6 +214,55 @@ export class IndexedDbStore implements Store {
     return row;
   }
 
+  // ── 附件 ────────────────────────────────────────────────────
+
+  async putAttachment(record: AttachmentRecord, blob: Blob): Promise<void> {
+    const tx = this.need().transaction(STORE_ATTACHMENTS, 'readwrite');
+    // IndexedDB 原生就能存 Blob，不需要转 base64（省一大截空间）
+    tx.objectStore(STORE_ATTACHMENTS).put({ ...record, blob } satisfies StoredAttachment);
+    await txDone(tx);
+  }
+
+  async getAttachment(id: string): Promise<{ record: AttachmentRecord; blob: Blob } | null> {
+    const tx = this.need().transaction(STORE_ATTACHMENTS, 'readonly');
+    const row = await req(
+      tx.objectStore(STORE_ATTACHMENTS).get(id) as IDBRequest<StoredAttachment | undefined>,
+    );
+    await txDone(tx);
+    if (row === undefined) return null;
+    const { blob, ...record } = row;
+    return { record, blob };
+  }
+
+  async listAttachments(boardId: string): Promise<AttachmentRecord[]> {
+    const tx = this.need().transaction(STORE_ATTACHMENTS, 'readonly');
+    const index = tx.objectStore(STORE_ATTACHMENTS).index('by_board_createdAt');
+    const range = IDBKeyRange.bound([boardId, 0], [boardId, Number.MAX_SAFE_INTEGER]);
+    const rows = await req(index.getAll(range) as IDBRequest<StoredAttachment[]>);
+    await txDone(tx);
+    // 新拍的排前面
+    return rows
+      .map(({ blob: _blob, ...record }) => record)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  async deleteAttachment(id: string): Promise<void> {
+    const tx = this.need().transaction(STORE_ATTACHMENTS, 'readwrite');
+    tx.objectStore(STORE_ATTACHMENTS).delete(id);
+    await txDone(tx);
+  }
+
+  async attachmentBytes(): Promise<number> {
+    const tx = this.need().transaction(STORE_ATTACHMENTS, 'readonly');
+    const rows = await req(
+      tx.objectStore(STORE_ATTACHMENTS).getAll() as IDBRequest<StoredAttachment[]>,
+    );
+    await txDone(tx);
+    let total = 0;
+    for (const r of rows) total += r.bytes;
+    return total;
+  }
+
   // ── 杂项 ────────────────────────────────────────────────────
 
   async getMeta<T>(key: string): Promise<T | null> {
@@ -201,7 +281,7 @@ export class IndexedDbStore implements Store {
   }
 
   async clear(): Promise<void> {
-    const names = [STORE_EVENTS, STORE_BOARDS, STORE_SESSIONS, STORE_META];
+    const names = [STORE_EVENTS, STORE_BOARDS, STORE_SESSIONS, STORE_META, STORE_ATTACHMENTS];
     const tx = this.need().transaction(names, 'readwrite');
     for (const name of names) tx.objectStore(name).clear();
     await txDone(tx);

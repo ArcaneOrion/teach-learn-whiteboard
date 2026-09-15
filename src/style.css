@@ -39,10 +39,10 @@ body {
 
 body {
   display: grid;
-  /* 状态条 / 板面 / 选项条 / 输入条 / 工具栏
-     选项条平时是 hidden（display:none），它会自动从栅格里让出位置，
-     所以多留一行不会有空白 */
-  grid-template-rows: auto 1fr auto auto auto;
+  /* 状态条 / 板面 / 选项条 / 待发送截图 / 输入条 / 工具栏
+     后三个平时是 hidden（display:none），会自动从栅格里让出位置，
+     所以多留几行不会有空白 */
+  grid-template-rows: auto 1fr auto auto auto auto;
   height: 100dvh; /* dvh 能正确处理手机地址栏收起/展开 */
 }
 
@@ -354,6 +354,40 @@ body {
 
 .choicebar[hidden] {
   display: none;
+}
+
+/* ── 待发送的截图 ───────────────────────────────────────────── */
+
+.pending {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #f0f7ff;
+  border-top: 1px solid #bfdbfe;
+}
+
+.pending[hidden] {
+  display: none;
+}
+
+.pending__thumb {
+  flex: none;
+  width: 64px;
+  height: 44px;
+  object-fit: cover;
+  object-position: top left;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.pending__hint {
+  flex: 1;
+  min-width: 0;
+  color: #1e40af;
+  font-size: 12.5px;
+  line-height: 1.5;
 }
 
 /* ── 输入条 ─────────────────────────────────────────────────── */

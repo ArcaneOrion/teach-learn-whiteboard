@@ -8,7 +8,7 @@
  * 不管中间经过了多少次增删改、也不管事件是乱序到达的还是同步来的。
  */
 
-import type { BoardEvent, BoardOp, Choice } from './types';
+import type { BoardEvent, BoardOp, Choice, EventPayload } from './types';
 import type { Stroke } from '../ink/strokes';
 
 /** AI 写在板面上的一块内容 */
@@ -31,6 +31,8 @@ export interface BoardState {
   strokes: Stroke[];
   /** AI 出的选项；用户答完就清空 */
   choices: Choice[] | null;
+  /** 拍过的截图（只有引用，图片本体在附件表里） */
+  snapshots: EventPayload<'board.snapshot'>[];
 }
 
 /**
@@ -55,6 +57,7 @@ export function composeBoard(boardId: string, events: readonly BoardEvent[]): Bo
     blocks: [],
     strokes: [],
     choices: null,
+    snapshots: [],
   };
 
   const ordered = events
@@ -95,6 +98,11 @@ function applyEvent(state: BoardState, e: BoardEvent): void {
 
     case 'ink.clear':
       state.strokes = [];
+      return;
+
+    case 'board.snapshot':
+      // 拍照不改变板面本身，只记录"拍过这么一张"。将来做时间轴回放时会用到
+      state.snapshots.push(e.payload);
       return;
 
     case 'user.say':

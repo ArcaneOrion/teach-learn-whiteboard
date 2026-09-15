@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { BoardEvent } from '../core/types';
 import type { SessionRecord } from '../core/session';
-import type { BoardRecord, Store } from './types';
+import type { AttachmentRecord, BoardRecord, Store } from './types';
 import { MemoryStore } from './memoryStore';
 import { IndexedDbStore } from './indexedDbStore';
 
@@ -49,6 +49,22 @@ function session(over: Partial<SessionRecord> & { id: string }): SessionRecord {
     endedAt: null,
     lastActive: 1000,
     deviceId: 'dev-A',
+    ...over,
+  };
+}
+
+function attachment(over: Partial<AttachmentRecord> & { id: string }): AttachmentRecord {
+  return {
+    userId: 'local',
+    sessionId: 's1',
+    boardId: 'b1',
+    kind: 'snapshot',
+    mime: 'image/png',
+    bytes: 0,
+    width: 800,
+    height: 600,
+    caption: null,
+    createdAt: 1000,
     ...over,
   };
 }
@@ -202,12 +218,63 @@ function storeContract(name: string, make: () => Promise<Store>): void {
       expect(await store.getMeta<{ a: number }>('config')).toEqual({ a: 1, b: [1, 2] });
     });
 
+    // ── 附件 ──────────────────────────────────────────────────
+
+    it('★ 附件能带着二进制原样存取', async () => {
+      const blob = new Blob([new Uint8Array([137, 80, 78, 71, 1, 2, 3])], { type: 'image/png' });
+      await store.putAttachment(attachment({ id: 'a1', bytes: blob.size }), blob);
+
+      const got = await store.getAttachment('a1');
+      expect(got).not.toBeNull();
+      expect(got?.record.mime).toBe('image/png');
+      expect(got?.blob.size).toBe(blob.size);
+      // 二进制内容要一致，不能变成别的东西
+      expect(new Uint8Array(await got!.blob.arrayBuffer())).toEqual(
+        new Uint8Array([137, 80, 78, 71, 1, 2, 3]),
+      );
+    });
+
+    it('读不存在的附件返回 null', async () => {
+      expect(await store.getAttachment('nope')).toBeNull();
+    });
+
+    it('附件列表按创建时间倒序，且只列指定板的', async () => {
+      const blob = new Blob(['x']);
+      await store.putAttachment(attachment({ id: 'a1', boardId: 'b1', createdAt: 1000 }), blob);
+      await store.putAttachment(attachment({ id: 'a2', boardId: 'b1', createdAt: 3000 }), blob);
+      await store.putAttachment(attachment({ id: 'a3', boardId: 'b2', createdAt: 2000 }), blob);
+
+      expect((await store.listAttachments('b1')).map((a) => a.id)).toEqual(['a2', 'a1']);
+      expect((await store.listAttachments('b2')).map((a) => a.id)).toEqual(['a3']);
+    });
+
+    it('删除附件之后读不到', async () => {
+      await store.putAttachment(attachment({ id: 'a1' }), new Blob(['x']));
+      await store.deleteAttachment('a1');
+      expect(await store.getAttachment('a1')).toBeNull();
+    });
+
+    it('统计附件占用字节', async () => {
+      await store.putAttachment(attachment({ id: 'a1', bytes: 100 }), new Blob(['x']));
+      await store.putAttachment(attachment({ id: 'a2', bytes: 250 }), new Blob(['y']));
+      expect(await store.attachmentBytes()).toBe(350);
+    });
+
+    it('附件里存了文字（caption），这对将来的检索很重要', async () => {
+      await store.putAttachment(
+        attachment({ id: 'a1', caption: '用户在判别式上画了个圈' }),
+        new Blob(['x']),
+      );
+      expect((await store.getAttachment('a1'))?.record.caption).toBe('用户在判别式上画了个圈');
+    });
+
     // ── clear ─────────────────────────────────────────────────
 
     it('clear 清空一切', async () => {
       await store.appendEvents([event({ id: 'e1', seq: 1 })]);
       await store.putBoard(board({ id: 'b1' }));
       await store.putSession(session({ id: 's1' }));
+      await store.putAttachment(attachment({ id: 'a1' }), new Blob(['x']));
       await store.setMeta('k', 'v');
 
       await store.clear();
@@ -215,6 +282,7 @@ function storeContract(name: string, make: () => Promise<Store>): void {
       expect(await store.loadEvents('b1')).toHaveLength(0);
       expect(await store.getBoard('b1')).toBeNull();
       expect(await store.lastSession()).toBeNull();
+      expect(await store.getAttachment('a1')).toBeNull();
       expect(await store.getMeta('k')).toBeNull();
     });
   });

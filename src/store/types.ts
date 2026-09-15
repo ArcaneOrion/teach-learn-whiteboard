@@ -25,6 +25,34 @@ export interface BoardRecord {
   archived: 0 | 1;
 }
 
+/**
+ * 附件（截图等二进制内容）。
+ *
+ * ⚠️ 为什么**不把图片塞进事件日志**：一张截图一百多 KB，base64 之后更大，
+ * 而事件日志每写一笔都要整体读写 —— 几张图就能让它慢得没法用。
+ * 所以事件里只存 `attachmentId`，图片本体单独放。
+ */
+export interface AttachmentRecord {
+  id: string;
+  userId: string;
+  /** 属于哪次会话 */
+  sessionId: string | null;
+  /** 属于哪块板 */
+  boardId: string | null;
+  kind: 'snapshot' | 'imported' | 'other';
+  mime: string;
+  bytes: number;
+  width: number;
+  height: number;
+  /**
+   * AI 生成的一句话描述（技术文档 §9.5）。
+   * 有了它，**截图才能被文字搜索到** —— 否则图片在检索里等于不存在。
+   * M4 才填，现在留 null。
+   */
+  caption: string | null;
+  createdAt: number;
+}
+
 export interface Store {
   /** 打开数据库 / 准备就绪 */
   init(): Promise<void>;
@@ -55,6 +83,16 @@ export interface Store {
   listSessions(): Promise<SessionRecord[]>;
   /** 最近一次会话（用来判断该续上还是该新开） */
   lastSession(): Promise<SessionRecord | null>;
+
+  // ── 附件（截图等二进制）────────────────────────────────────
+
+  putAttachment(record: AttachmentRecord, blob: Blob): Promise<void>;
+  getAttachment(id: string): Promise<{ record: AttachmentRecord; blob: Blob } | null>;
+  /** 按创建时间倒序 */
+  listAttachments(boardId: string): Promise<AttachmentRecord[]>;
+  deleteAttachment(id: string): Promise<void>;
+  /** 附件占了多少字节（存储管理要用） */
+  attachmentBytes(): Promise<number>;
 
   // ── 杂项 ──────────────────────────────────────────────────
 

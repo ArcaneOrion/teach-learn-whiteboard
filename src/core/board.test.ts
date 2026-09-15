@@ -210,6 +210,57 @@ describe('AI 出选项与用户作答', () => {
   });
 });
 
+describe('视觉回流（截图）', () => {
+  it('board.snapshot 只记录引用，不把图片塞进日志', () => {
+    const log = makeLog();
+    log.snapshot({ attachmentId: 'att-1', text: '这里没懂' });
+
+    const state = composeBoard('b1', log.all);
+    expect(state.snapshots).toHaveLength(1);
+    expect(state.snapshots[0]?.attachmentId).toBe('att-1');
+    expect(state.snapshots[0]?.text).toBe('这里没懂');
+
+    // 整条事件序列化之后应该很小 —— 图片本体在附件表里，不在日志里
+    expect(JSON.stringify(log.all).length).toBeLessThan(1000);
+  });
+
+  it('只画了个圈、没打字也能发', () => {
+    const log = makeLog();
+    log.snapshot({ attachmentId: 'att-1', text: null });
+    expect(composeBoard('b1', log.all).snapshots[0]?.text).toBeNull();
+  });
+
+  it('截图不改变板面本身（块、笔迹都不受影响）', () => {
+    const log = makeLog();
+    log.aiWrite({ op: 'append', html: '<p>x</p>', region: 'a' });
+    log.writeStroke(stroke('s1'));
+    const before = composeBoard('b1', log.all);
+
+    log.snapshot({ attachmentId: 'att-1', text: '看这里' });
+    const after = composeBoard('b1', log.all);
+
+    expect(after.blocks).toEqual(before.blocks);
+    expect(after.strokes).toEqual(before.strokes);
+    expect(after.snapshots).toHaveLength(1);
+  });
+
+  it('多次截图按顺序累积', () => {
+    const log = makeLog();
+    log.snapshot({ attachmentId: 'att-1', text: '第一张' });
+    log.snapshot({ attachmentId: 'att-2', text: '第二张' });
+    expect(composeBoard('b1', log.all).snapshots.map((s) => s.attachmentId)).toEqual([
+      'att-1',
+      'att-2',
+    ]);
+  });
+
+  it('图说（caption）预留字段可以填', () => {
+    const log = makeLog();
+    log.snapshot({ attachmentId: 'att-1', text: null, caption: '用户在判别式上画了圈' });
+    expect(composeBoard('b1', log.all).snapshots[0]?.caption).toBe('用户在判别式上画了圈');
+  });
+});
+
 // ── 顺序鲁棒性（同步的地基）──────────────────────────────────
 
 describe('事件顺序', () => {

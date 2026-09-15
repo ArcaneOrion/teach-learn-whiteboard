@@ -28,6 +28,8 @@ export type EventKind =
   | 'ink.stroke'
   | 'ink.undo'
   | 'ink.clear'
+  // 视觉回流：把板面拍成图发给模型（技术文档 §12）
+  | 'board.snapshot'
   // 🔲 预留：记忆（v1 不产生，但解析器认识它，见技术文档 §10.1）
   | 'memory.set';
 
@@ -83,6 +85,25 @@ export type BoardEvent = EventEnvelope &
     | { kind: 'ink.stroke'; payload: { stroke: Stroke } }
     | { kind: 'ink.undo'; payload: { strokeId: string } }
     | { kind: 'ink.clear'; payload: null }
+    /**
+     * 把板面拍成图发给模型（视觉回流）。
+     *
+     * ⚠️ 事件里**只存 attachmentId，不存图片本身** —— 一张图一百多 KB，
+     * 而事件日志每次写入都要整体读写，几张图就能让它慢得没法用。
+     *
+     * `text` 和图片是**同一次发送**的两部分，所以放在同一条事件里，
+     * 而不是拆成 board.snapshot + user.say 两条。拆开会让折叠、回放、检索都变复杂。
+     */
+    | {
+        kind: 'board.snapshot';
+        payload: {
+          attachmentId: string;
+          /** 用户在输入条里说的话，可以为空（只画了个圈也能发） */
+          text: string | null;
+          /** AI 给这张图写的一句话描述，M4 才填 */
+          caption: string | null;
+        };
+      }
     | { kind: 'memory.set'; payload: unknown }
   );
 
