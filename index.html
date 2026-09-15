@@ -90,6 +90,7 @@
       <div class="toolbar__group" role="group" aria-label="模型渠道">
         <select class="select" id="channel" aria-label="当前渠道与模型"></select>
         <button class="btn" id="open-settings" type="button">⚙️ 渠道</button>
+        <button class="btn" id="open-history" type="button">🕘 记录</button>
       </div>
     </footer>
 
@@ -135,6 +136,29 @@
         任何 OpenAI 兼容的端点都能填。本机服务（如 Ollama）也可以，
         但需要安卓端放行明文 HTTP（见 <code>docs/技术开发文档.md</code> §7.4）。
       </p>
+    </dialog>
+
+    <!-- 记录：搜内容 + 按日期的学习记录（产品文档第 8、9 节） -->
+    <dialog class="settings" id="history">
+      <div class="settings__head">
+        <h2>记录</h2>
+        <button class="btn" id="close-history" type="button">关闭</button>
+      </div>
+
+      <div class="history__search">
+        <input
+          class="field__input"
+          id="history-search"
+          type="search"
+          placeholder="搜板面内容、你说的话、截图的图说…"
+          autocomplete="off"
+        />
+      </div>
+
+      <div class="history__body">
+        <div id="history-results" hidden></div>
+        <div id="history-days"></div>
+      </div>
     </dialog>
 
     <script type="module" src="/src/main.ts"></script>

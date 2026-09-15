@@ -35,7 +35,10 @@ import { composeBoard, lastStroke, totalPoints, type BoardState } from './core/b
 import { resolveSession, sessionDuration } from './core/session';
 import { ContentLayer } from './ui/contentLayer';
 import { SettingsPanel } from './ui/settingsPanel';
+import { HistoryPanel } from './ui/historyPanel';
+import { htmlToText } from './ui/htmlText';
 import { blobToBase64, blobToDataUrl, rasterizeBoard } from './ui/rasterize';
+import { buildIndex, dedupeByRegion, type SearchDoc } from './core/search';
 import { IndexedDbStore } from './store/indexedDbStore';
 import { MemoryStore } from './store/memoryStore';
 import { makeId } from './store/types';
@@ -73,6 +76,7 @@ const pendingClearBtn = must<HTMLButtonElement>('#pending-clear');
 const choiceBar = must<HTMLElement>('#choicebar');
 const channelSelect = must<HTMLSelectElement>('#channel');
 const openSettingsBtn = must<HTMLButtonElement>('#open-settings');
+const openHistoryBtn = must<HTMLButtonElement>('#open-history');
 
 // ── 状态 ──────────────────────────────────────────────────────
 
@@ -232,6 +236,9 @@ async function onNewEvent(event: BoardEvent): Promise<void> {
   if (session !== null) session.lastActive = event.createdAt;
   if (boardRecord !== null) boardRecord.updatedAt = event.createdAt;
   scheduleMetaSave();
+
+  // 记录面板开着的时候，新内容进来要让它能立刻搜到
+  if (historyPanel?.isOpen === true) void historyPanel.reload();
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -723,6 +730,53 @@ function makeSettingsPanel(): SettingsPanel {
 }
 
 let settingsPanel: SettingsPanel | null = null;
+let historyPanel: HistoryPanel | null = null;
+
+// ── 记录面板：搜内容 + 按日期的学习记录 ──────────────────────
+
+/**
+ * 把事件日志投影成可搜索的文档表。
+ *
+ * 每次打开面板时重建 —— 几千条事件重建是毫秒级的，比维护增量索引简单得多，
+ * 而且永远和板上真实内容一致（不会出现"索引里有、板上没有"的鬼影）。
+ */
+function buildSearchIndex(): SearchDoc[] {
+  if (log === null) return [];
+  return dedupeByRegion(
+    buildIndex({
+      boardId,
+      boardTitle: board.title,
+      events: log.all,
+      toText: htmlToText,
+    }),
+  );
+}
+
+/** 点了搜索结果 → 把板面滚到对应的块，并闪一下让人看见找到了哪儿 */
+function locateOnBoard(doc: SearchDoc): void {
+  if (doc.kind !== 'ai.write' || doc.region === null) return;
+
+  // 用 dataset 逐块比对，而不是拼 CSS 选择器 —— 区域名里可能有引号之类的字符
+  const key = `r:${doc.region}`;
+  const target = [...contentEl.querySelectorAll<HTMLElement>('.block')].find(
+    (el) => el.dataset['blockKey'] === key,
+  );
+  if (target === undefined) {
+    setStatus(`「${doc.region}」这一块在板上已经不在了（可能被改写过）`);
+    return;
+  }
+
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  target.classList.remove('is-located');
+  // 强制重排一次，否则连续点同一条时动画不会重播
+  void target.offsetWidth;
+  target.classList.add('is-located');
+  window.setTimeout(() => target.classList.remove('is-located'), 3000);
+}
+
+openHistoryBtn.addEventListener('click', () => {
+  void historyPanel?.open();
+});
 
 openSettingsBtn.addEventListener('click', () => {
   void settingsPanel?.open();
@@ -847,6 +901,17 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
   );
 
   settingsPanel = makeSettingsPanel();
+
+  const theStore = store;
+  if (theStore !== null) {
+    historyPanel = new HistoryPanel(theStore, {
+      refresh: async () => ({
+        index: buildSearchIndex(),
+        sessions: await theStore.listSessions(),
+      }),
+      locate: locateOnBoard,
+    });
+  }
 
   // 调试读数：生产构建里默认关掉（它是浮在板面上的，会挡住内容）；
   // 点状态条可以随时开关。开发模式默认开着，方便调试。

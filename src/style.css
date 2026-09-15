@@ -605,3 +605,134 @@ body {
   font-size: 13px;
   text-align: center;
 }
+
+/* ── 记录面板 ───────────────────────────────────────────────── */
+
+.history__search {
+  padding: 12px 16px 6px;
+}
+
+.history__body {
+  padding: 6px 16px 20px;
+}
+
+.history__count {
+  padding: 6px 2px 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* 一条搜索结果 */
+.hit {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hit:hover,
+.hit:focus-visible {
+  border-color: var(--accent);
+  background: #f8fbff;
+}
+
+.hit__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.hit__kind {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 20px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 11px;
+}
+
+.hit__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.hit__when {
+  flex: none;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.hit__body {
+  color: #4b5563;
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.hit__thumb {
+  display: block;
+  width: 100%;
+  max-height: 140px;
+  margin-top: 8px;
+  object-fit: cover;
+  object-position: top left;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+/* 按日期的学习记录 */
+.day {
+  margin: 14px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.day:first-child {
+  margin-top: 4px;
+}
+
+.session {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 2px;
+  border-bottom: 1px dashed #f0eee9;
+}
+
+.session__name {
+  font-size: 13.5px;
+}
+
+.session__meta {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* 从搜索结果定位到板面上的块时，闪一下让人看见找到了哪儿 */
+@keyframes locate-flash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+  30% { box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.35); }
+}
+
+.block.is-located {
+  animation: locate-flash 1.4s ease-out 2;
+  border-color: var(--accent);
+}
