@@ -1079,3 +1079,8 @@ body {
   animation: locate-flash 1.4s ease-out 2;
   border-color: var(--accent);
 }
+
+/* 表单校验失败时的提示（代替原生 alert） */
+.field__error {
+  color: #b91c1c;
+}

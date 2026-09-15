@@ -30,6 +30,8 @@ function el<T extends Element>(root: ParentNode, selector: string): T {
 export class SettingsPanel {
   private readonly dialog: HTMLDialogElement;
   private readonly list: HTMLElement;
+  /** 表单下方的提示位（校验失败写这里，不用原生弹窗） */
+  private readonly errorEl: HTMLElement;
   private readonly nameInput: HTMLInputElement;
   private readonly urlInput: HTMLInputElement;
   private readonly keyInput: HTMLInputElement;
@@ -41,6 +43,7 @@ export class SettingsPanel {
   ) {
     this.dialog = el<HTMLDialogElement>(document, '#settings');
     this.list = el<HTMLElement>(this.dialog, '#channel-list');
+    this.errorEl = el<HTMLElement>(this.dialog, '#f-error');
     this.nameInput = el<HTMLInputElement>(this.dialog, '#f-name');
     this.urlInput = el<HTMLInputElement>(this.dialog, '#f-url');
     this.keyInput = el<HTMLInputElement>(this.dialog, '#f-key');
@@ -55,6 +58,7 @@ export class SettingsPanel {
   }
 
   async open(): Promise<void> {
+    this.setError('');
     await this.refresh();
     this.dialog.showModal();
   }
@@ -118,6 +122,12 @@ export class SettingsPanel {
     }
   }
 
+  /** 在面板里显示一句提示（代替原生 alert） */
+  private setError(text: string): void {
+    this.errorEl.textContent = text;
+    this.errorEl.classList.toggle('field__error', text !== '');
+  }
+
   private async addFromForm(): Promise<void> {
     const name = this.nameInput.value.trim();
     const baseUrl = this.urlInput.value.trim();
@@ -128,9 +138,17 @@ export class SettingsPanel {
       .filter((s) => s !== '');
 
     if (name === '' || baseUrl === '' || modelIds.length === 0) {
-      window.alert('名称、Base URL、模型 ID 都要填。');
+      /**
+       * ⚠️ 不要用 `window.alert`。
+       *
+       * 两个问题：① **它会阻塞浏览器自动化**（我自己就验不了这个表单了）
+       * ② 原生弹窗在手机上盖住界面、样式不受控，和 App 其它提示也不一致。
+       * 面板里本来就有一行位置可以放提示，写在那儿就好。
+       */
+      this.setError('名称、Base URL、模型 ID 都要填。');
       return;
     }
+    this.setError('');
 
     const channel: ChannelConfig = {
       id: this.callbacks.newId(),

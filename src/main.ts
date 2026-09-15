@@ -1032,10 +1032,45 @@ undoBtn.addEventListener('click', () => {
   recompose();
 });
 
+/**
+ * 「清空」的两步确认。
+ *
+ * ⚠️ 原来这里用的是 `window.confirm`。两个问题：
+ *   ① **它会阻塞浏览器自动化** —— 我自己验不了这个按钮（数据面板当初就是
+ *      因为这个才改成两步确认的，这里漏了）
+ *   ② 和 App 里其它破坏性操作不一致（面板里都是两步确认），
+ *      而且原生弹窗在手机上盖住界面、样式也不受控
+ *
+ * 清空笔迹是不可撤销的（`ink.clear` 是事件，但笔迹本身找不回来），
+ * 所以该拦一下 —— 只是不用原生弹窗拦。
+ */
+let clearArmed = false;
+let clearTimer: number | null = null;
+
+function disarmClear(): void {
+  clearArmed = false;
+  if (clearTimer !== null) {
+    window.clearTimeout(clearTimer);
+    clearTimer = null;
+  }
+  clearBtn.textContent = '🗑 清空';
+  clearBtn.classList.remove('btn--danger');
+}
+
 clearBtn.addEventListener('click', () => {
   if (log === null) return;
   if (board.strokes.length === 0) return;
-  if (!window.confirm(`确定清空全部 ${board.strokes.length} 笔？`)) return;
+
+  if (!clearArmed) {
+    clearArmed = true;
+    clearBtn.textContent = `再点一次，清空 ${String(board.strokes.length)} 笔`;
+    clearBtn.classList.add('btn--danger');
+    // 4 秒没动静就自动撤销"上膛"，免得过一会儿误点
+    clearTimer = window.setTimeout(disarmClear, 4000);
+    return;
+  }
+
+  disarmClear();
   log.clearInk();
   renderer.redrawAll();
   recompose();
@@ -1515,6 +1550,10 @@ async function switchBoard(nextId: string): Promise<void> {
   // 对话上下文是「这块板上的往来」，换板就得重来
   conversation.messages = [];
   seedConversation(log);
+
+  // 「清空」的"上膛"状态不跨板带着走 —— 在 A 板点了第一次、切到 B 板随手一点，
+  // 不该把 B 板清掉
+  disarmClear();
 
   recompose();
   renderer.redrawAll();
