@@ -11,10 +11,21 @@
     <title>共写白板</title>
   </head>
   <body>
-    <!-- 状态条：一行，永远在 -->
+    <!--
+      状态条：一行，永远在。
+
+      左边 ⚙ 是**菜单**（渠道 / 记录 / 数据 / 资料 / 板 全收进去），
+      右边 💬 是**AI 对话**（模型说了什么、想了什么）。
+
+      为什么挪到这里：手机上工具栏原来挤了「渠道下拉 + 5 个按钮」，
+      占掉整整两行，板面被压得只剩一小块。那些都是「配置」，不是「动手写字时要用的」，
+      而状态条这一行本来就有、标题又是多余的（App 名字在桌面上就有）——
+      用它换掉两行工具栏，白赚。
+    -->
     <header class="statusbar">
-      <span class="statusbar__title">共写白板</span>
-      <span class="statusbar__meta" id="status">M2 · 正在启动…</span>
+      <button class="statusbar__btn" id="open-menu" type="button" aria-label="菜单：渠道、记录、数据、资料、板">⚙</button>
+      <span class="statusbar__meta" id="status">正在启动…</span>
+      <button class="statusbar__btn" id="open-transcript" type="button" aria-label="AI 的回答与思考">💬</button>
     </header>
 
     <!--
@@ -86,19 +97,77 @@
         <button class="btn" id="undo" type="button">↩️ 撤销</button>
         <button class="btn" id="clear" type="button">🗑 清空</button>
       </div>
-
-      <div class="toolbar__group" role="group" aria-label="模型渠道">
-        <select class="select" id="channel" aria-label="当前渠道与模型"></select>
-        <button class="btn" id="open-settings" type="button">⚙️ 渠道</button>
-        <button class="btn" id="open-history" type="button">🕘 记录</button>
-        <button class="btn" id="open-data" type="button">💾 数据</button>
-        <button class="btn" id="open-materials" type="button">📚 资料</button>
-        <button class="btn" id="open-boards" type="button">🗂 板</button>
-      </div>
     </footer>
 
     <!-- 调试读数：验证输入质量与事件日志。M4 之后会去掉 -->
     <div class="hud" id="hud" aria-live="off"></div>
+
+    <!--
+      菜单 —— 状态条左上角那个 ⚙ 打开的。
+      原来这些挤在工具栏里（渠道下拉 + 5 个按钮），手机上一共占两行。
+      它们都是「配置/管理」，不是写字时要用的，所以全部收进来。
+    -->
+    <dialog class="settings menu" id="menu">
+      <div class="settings__head">
+        <h2>共写白板</h2>
+        <button class="btn" id="close-menu" type="button">关闭</button>
+      </div>
+
+      <label class="field">
+        <span class="field__label">当前渠道与模型</span>
+        <select class="select" id="channel" aria-label="当前渠道与模型"></select>
+      </label>
+
+      <div class="menu__list">
+        <button class="menu__item" id="open-settings" type="button">
+          <span class="menu__icon">⚙️</span>
+          <span class="menu__text"><strong>模型渠道</strong><small>填 API Key、加一个渠道</small></span>
+        </button>
+        <button class="menu__item" id="open-history" type="button">
+          <span class="menu__icon">🕘</span>
+          <span class="menu__text"><strong>记录</strong><small>搜板面内容、按日期回看</small></span>
+        </button>
+        <button class="menu__item" id="open-data" type="button">
+          <span class="menu__icon">💾</span>
+          <span class="menu__text"><strong>数据与备份</strong><small>导出备份、存成图片、同步</small></span>
+        </button>
+        <button class="menu__item" id="open-materials" type="button">
+          <span class="menu__icon">📚</span>
+          <span class="menu__text"><strong>资料</strong><small>导入书和文档，让 AI 自己去查</small></span>
+        </button>
+        <button class="menu__item" id="open-boards" type="button">
+          <span class="menu__icon">🗂</span>
+          <span class="menu__text"><strong>板</strong><small>切换、新建、改名、删除</small></span>
+        </button>
+        <button class="menu__item" id="toggle-hud" type="button">
+          <span class="menu__icon">📊</span>
+          <span class="menu__text"><strong>调试读数</strong><small>笔压、采样点、事件数 —— 排查手感问题时才需要</small></span>
+        </button>
+      </div>
+    </dialog>
+
+    <!--
+      AI 对话 —— 状态条右上角那个 💬 打开的。
+
+      装的是模型的**回答**（那些没写进板面的文字）和**思考过程**。
+      写进板面的东西**不在这里** —— 那在板上。
+
+      为什么思考过程不写进板面：板面是给学习的，思考过程是给排查的，
+      混在一起会把板面搞脏，而板面是会被导出、会被复习的。
+    -->
+    <dialog class="settings" id="transcript">
+      <div class="settings__head">
+        <h2>AI 对话</h2>
+        <button class="btn" id="close-transcript" type="button">关闭</button>
+      </div>
+
+      <p class="settings__note">
+        这里是模型<strong>说</strong>的话和<strong>想</strong>的过程。
+        <br />只留本次打开 App 以来的记录（重开会清空）—— 值得留下的内容应该写到板上。
+      </p>
+
+      <div class="transcript" id="transcript-list"></div>
+    </dialog>
 
     <!-- 渠道设置 -->
     <dialog class="settings" id="settings">

@@ -33,6 +33,8 @@ export type ToolExecutor = (
 export interface TurnCallbacks {
   /** 模型吐出一段文字（本产品里通常不多 —— 大部分内容走 board_write） */
   onTextDelta?: (delta: string) => void;
+  /** 推理模型的思考过程（reasoning）。**不是**给用户看的答案，是排查用的 */
+  onThinkingDelta?: (delta: string) => void;
   onToolCall?: (name: string, args: Record<string, unknown>) => void;
   onToolResult?: (name: string, outcome: ToolOutcome) => void;
   /** 每转一圈回调一次，便于界面显示「思考中…」 */
@@ -124,6 +126,16 @@ export async function runTurn(opts: RunTurnOptions): Promise<TurnResult> {
           text += event.delta;
           opts.onTextDelta?.(event.delta);
           break;
+        /**
+         * 推理模型的思考过程（DeepSeek-R1 / V4.1-Flash 这类会吐 reasoning_content）。
+         *
+         * 它不是给用户看的答案，但**有用**：模型要是理解偏了、或者绕了半天，
+         * 看一眼思考就知道卡在哪。所以接出来放进「AI 对话」面板，不写进板面 ——
+         * 板面是给学习的，思考过程是给排查的，两者混在一起会污染板面。
+         */
+        case 'thinking_delta':
+          opts.onThinkingDelta?.(event.delta);
+          break;
         case 'error':
           throw new Error(
             opts.signal?.aborted === true || event.reason === 'aborted'
@@ -131,7 +143,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<TurnResult> {
               : `模型调用出错：${describeStreamError(event.error)}`,
           );
         default:
-          // thinking / toolcall_delta 等暂不处理（M2 先不做思考过程展示）
+          // toolcall_delta 等暂不处理
           break;
       }
     }

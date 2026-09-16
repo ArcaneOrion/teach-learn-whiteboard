@@ -81,13 +81,13 @@ body {
 .statusbar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   /* ★ 高度必须把安全区**算进去**。原来写死 40px、又加了 padding-top，
      而 box-sizing 是 border-box —— 手机上安全区有 30~40px，
      内容区就被挤得只剩几个像素，文字直接被切掉一半。
      用 calc() 让高度跟着安全区长，内容区才永远是完整的 40px。 */
   height: calc(var(--statusbar-h) + var(--safe-top));
-  padding: 0 12px;
+  padding: 0 8px;
   padding-top: var(--safe-top);
   background: var(--panel);
   border-bottom: 1px solid var(--line);
@@ -97,14 +97,36 @@ body {
   overflow: hidden;
 }
 
-.statusbar__title {
+/**
+ * 状态条两端的方形按钮（⚙ 菜单 / 💬 AI 对话）。
+ *
+ * 这两个按钮是**用状态条这一行换工具栏两行**的关键：状态条本来就有、
+ * 标题又是多余的（App 名字在桌面上就有），拿它装入口等于白赚两行板面。
+ *
+ * 高度撑满状态条 → 点按区域够大（拇指友好），又不额外占高度。
+ */
+.statusbar__btn {
   flex: none;
-  font-weight: 600;
-  white-space: nowrap;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.statusbar__btn:active {
+  background: #eeeae2;
 }
 
 .statusbar__meta {
-  /* flex:1 + min-width:0 是让省略号生效的关键组合 */
+  /* flex:1 + min-width:0 是让文字能横向滚的关键组合 */
   flex: 1;
   min-width: 0;
   overflow-x: auto;
@@ -582,6 +604,180 @@ body {
   background: rgba(31, 35, 40, 0.35);
 }
 
+/* ── 菜单（状态条左上角 ⚙ 打开的）─────────────────────────────
+   原来这些东西挤在工具栏里占两行。它们是「配置/管理」，
+   不是写字时要用的 —— 收进这里，板面直接多出两行。 */
+
+.menu__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px 16px;
+}
+
+/* 菜单里的渠道下拉要占满整行 —— 选项名（「本地演示（不用 Key）」这类）很长，
+   默认的 max-width: 220px 会把它截掉。 */
+.menu .select {
+  width: 100%;
+  max-width: none;
+}
+
+/**
+ * 一行一个入口。
+ * 高度给足（≥52px）：手机上要能用拇指点准，而这里每个入口都对应一整块功能，
+ * 点错的代价是弹出一个不相干的面板。
+ */
+.menu__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu__item:active {
+  background: #f2efe8;
+}
+
+/* 开关型条目（比如调试读数）：标出「现在是开着的」。
+   自绘按钮不像 checkbox 自带状态，不标出来用户不知道点没点上。 */
+.menu__item.is-on {
+  border-color: var(--accent);
+  background: #eff4ff;
+}
+
+.menu__item.is-on .menu__text strong::after {
+  content: ' · 已开';
+  color: var(--accent);
+  font-weight: 400;
+}
+
+.menu__icon {
+  flex: none;
+  font-size: 20px;
+}
+
+.menu__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.menu__text strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.menu__text small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ── AI 对话（状态条右上角 💬 打开的）─────────────────────────
+   模型的回答与思考。板面是给学习的，这里是给排查的。 */
+
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px 16px;
+}
+
+.turn {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.turn__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.turn__time {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 这一轮调了哪些工具。比纯文字有用得多：一眼看出它是「光想没写」还是「写了」 */
+.turn__tool {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 11px;
+}
+
+.turn__question {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+  /* 用户自己说的话，压低存在感，但保留换行便于对照 */
+  white-space: pre-wrap;
+}
+
+.turn__answer {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  /* ★ 必须保留换行：模型经常用换行分段，挤成一坨就没法读了 */
+  white-space: pre-wrap;
+  /* 模型可能吐超长的一行（比如一个长 URL）—— 强制换行，别把面板撑宽 */
+  overflow-wrap: anywhere;
+}
+
+.turn__think {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
+.turn__think summary {
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.turn__think p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.turn__quiet {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.turn__error {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b42318;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .settings__head {
   position: sticky;
   top: 0;
@@ -757,8 +953,10 @@ body {
     padding: 0 8px;
   }
 
-  /* 下拉的宽度由最长选项决定，窄屏下它一个人就占掉一大截 */
-  .select {
+  /* 下拉的宽度由最长选项决定，窄屏下它一个人就占掉一大截。
+     ⚠️ 只限工具栏里的下拉 —— 渠道下拉后来搬进了菜单，
+     菜单里它应该占满整行（否则选项名会被截成「本地演示（不用 k」）。 */
+  .toolbar .select {
     max-width: 128px;
     padding: 0 4px;
   }

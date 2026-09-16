@@ -40,6 +40,7 @@ import { HistoryPanel } from './ui/historyPanel';
 import { DataPanel } from './ui/dataPanel';
 import { MaterialsPanel } from './ui/materialsPanel';
 import { BoardsPanel, type BoardSummary } from './ui/boardsPanel';
+import { TranscriptPanel, type TranscriptTurn } from './ui/transcriptPanel';
 import { htmlToText } from './ui/htmlText';
 import { blobToBase64, blobToDataUrl } from './base64';
 import { rasterizeBoard } from './ui/rasterize';
@@ -760,6 +761,22 @@ async function sendTurn(rawText: string, snapshot: PendingSnapshot | null = null
   const folded = foldSystemIntoUser(history, sp);
   const request: Context = { messages: folded.messages, tools: boardTools };
 
+  /**
+   * 这一轮的「回答 + 思考」记录。
+   *
+   * 先进数组再流式填 —— 这样用户中途点开 💬 就能看到正在进行的内容，
+   * 而不是等整轮结束才突然冒出来。
+   */
+  const turn: TranscriptTurn = {
+    at: Date.now(),
+    question: text,
+    answer: '',
+    thinking: '',
+    tools: [],
+  };
+  transcript.push(turn);
+  transcriptPanel?.notify();
+
   try {
     const result = await runTurn({
       models,
@@ -767,7 +784,17 @@ async function sendTurn(rawText: string, snapshot: PendingSnapshot | null = null
       context: request,
       execute: executeTool,
       signal,
+      onTextDelta: (delta) => {
+        turn.answer += delta;
+        transcriptPanel?.notify();
+      },
+      onThinkingDelta: (delta) => {
+        turn.thinking += delta;
+        transcriptPanel?.notify();
+      },
       onToolCall: (name) => {
+        turn.tools.push(name);
+        transcriptPanel?.notify();
         // ⚠️ 别用「不是 board_write 就是出选项」这种二分 ——
         //    加了 search_materials 之后，查资料也会被说成"正在出选项"
         setStatus(describeTool(name));
@@ -782,10 +809,14 @@ async function sendTurn(rawText: string, snapshot: PendingSnapshot | null = null
   } catch (err) {
     // 用户自己按的停止不算"出错" —— 别用红字吓他
     if (signal.aborted) {
+      turn.error = '已停下。';
       setStatus('已停下。板上已经写上去的内容会留着。');
     } else {
       console.error('对话失败：', err);
-      setStatus(`出错：${explainError(err, runtime())}`);
+      const reason = explainError(err, runtime());
+      // 面板里留原始信息，状态条上说人话 —— 排查时两边都要看
+      turn.error = `${reason}\n（原始错误：${err instanceof Error ? err.message : String(err)}）`;
+      setStatus(`出错：${reason}`);
     }
   } finally {
     // 这一轮新产生的消息（模型回复、工具结果）要归档回持久历史。
@@ -793,6 +824,8 @@ async function sendTurn(rawText: string, snapshot: PendingSnapshot | null = null
     // 开头那 N 条是我们临时拼进去的（折叠的提示词 + 截断后的历史），跳过它们。
     const fresh = request.messages.slice(folded.messages.length);
     conversation.messages = [...history, ...fresh];
+    // 这一轮结束了，让面板做最后一次刷新（节流可能把最后一段内容攒着没画）
+    transcriptPanel?.notify();
     abortController = null;
     setRunning(false);
   }
@@ -1145,9 +1178,25 @@ let settingsPanel: SettingsPanel | null = null;
 let historyPanel: HistoryPanel | null = null;
 let dataPanel: DataPanel | null = null;
 
+// ── AI 对话（模型的回答与思考）──────────────────────────────────
+//
+// 只放在内存里，**不进事件日志**。理由是刻意的：
+// 思考过程又长又绕，进了日志就会跟着同步、跟着备份、把板面的信噪比拉低。
+// 它的价值是「刚才那轮它到底怎么想的」，看的是当下，不是历史。
+// （值得留下来的内容本来就该写到板上。）
+let transcriptPanel: TranscriptPanel | null = null;
+const transcript: TranscriptTurn[] = [];
+
+/** 菜单里的五个入口：点了先把菜单关掉，再开对应的面板 */
+function fromMenu(open: () => void): void {
+  const menu = document.querySelector<HTMLDialogElement>('#menu');
+  if (menu?.open === true) menu.close();
+  open();
+}
+
 // ── 数据与备份 ────────────────────────────────────────────────
 
-const APP_VERSION = '0.1.1';
+const APP_VERSION = '0.1.2';
 
 function makeDataPanel(theStore: Store): DataPanel {
   return new DataPanel({
@@ -1375,7 +1424,7 @@ function applyAutoSync(config: SyncConfig): void {
 }
 
 openHistoryBtn.addEventListener('click', () => {
-  void historyPanel?.open();
+  void fromMenu(() => void historyPanel?.open());
 });
 
 /**
@@ -1498,12 +1547,42 @@ async function guideChannelSetup(): Promise<void> {
 }
 
 openSettingsBtn.addEventListener('click', () => {
-  void settingsPanel?.open();
+  void fromMenu(() => void settingsPanel?.open());
 });
 
 openDataBtn.addEventListener('click', () => {
-  void dataPanel?.open();
+  void fromMenu(() => void dataPanel?.open());
 });
+
+// ── 菜单与 AI 对话（状态条上那两个按钮）──────────────────────
+
+const menuDialog = must<HTMLDialogElement>('#menu');
+must<HTMLButtonElement>('#open-menu').addEventListener('click', () => {
+  if (!menuDialog.open) menuDialog.showModal();
+});
+must<HTMLButtonElement>('#close-menu').addEventListener('click', () => {
+  menuDialog.close();
+});
+
+must<HTMLButtonElement>('#open-transcript').addEventListener('click', () => {
+  transcriptPanel?.open();
+});
+
+// 调试读数的开关。按钮上要显出「现在是开还是关」——
+// 它是自绘的按钮，不像 checkbox 自带状态，不标出来用户不知道点没点上。
+const hudToggleBtn = must<HTMLButtonElement>('#toggle-hud');
+
+function paintHudToggle(): void {
+  hudToggleBtn.classList.toggle('is-on', !hud.hidden);
+  hudToggleBtn.setAttribute('aria-pressed', String(!hud.hidden));
+}
+
+hudToggleBtn.addEventListener('click', () => {
+  hud.hidden = !hud.hidden;
+  paintHudToggle();
+});
+
+transcriptPanel = new TranscriptPanel(() => transcript);
 
 // ── 资料（M7 / RAG）──────────────────────────────────────────
 
@@ -1531,7 +1610,7 @@ function makeMaterialsPanel(theStore: Store): MaterialsPanel {
 }
 
 openMaterialsBtn.addEventListener('click', () => {
-  void materialsPanel?.open();
+  void fromMenu(() => void materialsPanel?.open());
 });
 
 /**
@@ -1738,7 +1817,7 @@ function makeBoardsPanel(theStore: Store): BoardsPanel {
 }
 
 openBoardsBtn.addEventListener('click', () => {
-  void boardsPanel?.open();
+  void fromMenu(() => void boardsPanel?.open());
 });
 
 // ── 启动 ──────────────────────────────────────────────────────
@@ -1972,13 +2051,14 @@ async function onBoardReady(isNewSession: boolean, loadedCount: number): Promise
     boardsPanel = makeBoardsPanel(theStore);
   }
 
-  // 调试读数：生产构建里默认关掉（它是浮在板面上的，会挡住内容）；
-  // 点状态条可以随时开关。开发模式默认开着，方便调试。
+  // 调试读数：生产构建里默认关掉（它是浮在板面上的，会挡住内容）。
+  //
+  // ★ 开关从「点状态条文字」挪到了菜单里，两个原因：
+  //   ① 状态条文字现在能横向滑了（长错误信息要看得全），
+  //      再让"点一下"去切换它会打架 —— 用户想滑，结果把读数开关了；
+  //   ② 那个交互本来就是隐形的，没人猜得到。
   hud.hidden = !IS_DEV_BUILD;
-  statusEl.style.cursor = 'pointer';
-  statusEl.addEventListener('click', () => {
-    hud.hidden = !hud.hidden;
-  });
+  paintHudToggle();
 
   applyTool();
   syncSize();
