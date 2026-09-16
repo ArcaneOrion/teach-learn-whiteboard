@@ -11,10 +11,19 @@ import { describe, expect, it } from 'vitest';
 import { explainError } from './errors';
 
 describe('explainError', () => {
-  it('★ 浏览器里的 Failed to fetch 要说清 CORS 这回事', () => {
+  it('★ 网页里的 Failed to fetch 要说清是跨域被拒，而不是含糊的「连不上」', () => {
     const msg = explainError(new TypeError('Failed to fetch'), 'browser');
     expect(msg).toContain('CORS');
-    expect(msg).toContain('装到手机上');
+    // ★ 必须点明「curl 通不代表浏览器通」——
+    //   这正是我们排查这个 bug 时被误导的地方：三条 curl 全 200，浏览器里全死
+    expect(msg).toContain('curl');
+  });
+
+  it('★ 不能说「装到手机上就能用」—— 那是假的', () => {
+    // 安卓 WebView 里就是网页环境，Capacitor 没关掉跨域检查，装到手机上照样被拒。
+    // 这条断言是防那句话再溜回来。
+    const msg = explainError(new TypeError('Failed to fetch'), 'browser');
+    expect(msg).not.toContain('装到手机上');
   });
 
   // ★ 这条字符串是**实测抓到的**：pi-ai 把浏览器里被 CORS 挡住的请求

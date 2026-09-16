@@ -648,10 +648,27 @@ async function searchMaterialsTool(query: string): Promise<ToolOutcome> {
   };
 }
 
-/** 我们是在安卓 App 里跑，还是在电脑浏览器里？决定报错时提不提 CORS */
+/**
+ * 报错时该不该提「跨域」？
+ *
+ * ⚠️ 这里踩过一个坑。原来写的是：
+ *
+ *     return 'Capacitor' in window ? 'app' : 'browser';
+ *
+ * 想法是「App 里走原生网络，不存在跨域」。**这个前提是错的**：
+ * Capacitor 的 App 就是一个 WebView（origin 是 `https://localhost`），
+ * 页面里发的请求照样受跨域检查 —— 我们并没有开 CapacitorHttp。
+ *
+ * 代价很具体：真机上接 ModelScope 时，报错落在 'app' 分支，
+ * 只说「渠道连不上（地址不对）」，而真正的原因（跨域被拒）一个字都没提 ——
+ * 把人往「去改一个本来就对的地址」的方向带。
+ *
+ * 所以判断依据要改成**请求是怎么发出去的**，而不是「在哪跑」。
+ * 现在两条路都是网页 fetch，所以恒为 'browser'。
+ * 将来真开了原生 HTTP，改这一处即可。
+ */
 function runtime(): 'browser' | 'app' {
-  // Capacitor 注入 window.Capacitor。装上 Capacitor 之后这里自然为真
-  return 'Capacitor' in window ? 'app' : 'browser';
+  return 'browser';
 }
 
 // ── 一次对话回合 ──────────────────────────────────────────────

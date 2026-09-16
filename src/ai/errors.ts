@@ -51,9 +51,9 @@ const AUTH_ERROR = new RegExp(
 );
 
 /**
- * @param err  原始错误
- * @param where 'browser' 时才会提示 CORS 那条 —— 因为装在手机上走原生 HTTP，
- *              根本不存在 CORS 问题，那时候还提它就变成误导了
+ * @param err   原始错误
+ * @param where 'browser' = 跑在**网页环境**里（含安卓 App 的 WebView），
+ *              'app' = 真正走原生 HTTP（现在的 Capacitor 配置**不是**这种）
  */
 export function explainError(err: unknown, where: 'browser' | 'app' = 'browser'): string {
   const msg = messageOf(err);
@@ -63,11 +63,31 @@ export function explainError(err: unknown, where: 'browser' | 'app' = 'browser')
       msg,
     )
   ) {
+    /**
+     * ⚠️ 这段文案被改过两次，两次都是因为它**把排查方向指错了**。
+     *
+     * 第一版写「装到手机上走原生网络就能用」——**假话**。
+     * 第二版把它按「浏览器 / App」二分——**分错了**：跨域是
+     * **网页环境**的属性，不是「浏览器 vs App」的属性。安卓 App 里就是
+     * 一个 WebView（origin 是 https://localhost），Capacitor 并没有关掉
+     * 跨域检查，所以装上手机照样被拒。
+     *
+     * 这个错误假设的代价很具体：App 里判成 'app' 分支后，报错只说
+     * 「地址不对／网络不通」，用户就会去改一个本来就对的地址 ——
+     * 而真正的原因（跨域）一个字都没提。
+     *
+     * 实测的完整链路：ModelScope 用白名单式 CORS，而 OpenAI SDK 给每个请求
+     * 自动加一串 `x-stainless-*`，白名单里没有它 → 预检被拒 →
+     * 前端只拿到 `Failed to fetch`。curl / Node **不发预检**，
+     * 所以「我用 curl 试过是通的」排除不了它。
+     *
+     * （那串头已在 corsSafeFetch.ts 里摘掉了；这条文案留作以后再遇到时的提示。）
+     */
     const cors =
       where === 'browser'
-        ? '① 这家渠道不允许从浏览器直连（CORS）—— 装到手机上走原生网络就能用；'
+        ? '① **这家渠道不允许网页直连**（跨域 CORS）—— 注意：用 curl / Postman 试是通的，因为它们不发预检，说明不了问题；'
         : '① 这家渠道连不上（地址不对或服务没在跑）；';
-    return `连接失败。常见原因：${cors}② Base URL 填错了；③ 网络不通，或需要代理。`;
+    return `连接失败。常见原因：${cors}② Base URL 填错了（一般要带 /v1）；③ 网络不通，或需要代理。`;
   }
 
   if (AUTH_ERROR.test(msg)) {

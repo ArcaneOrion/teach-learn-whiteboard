@@ -16,6 +16,8 @@
 
 import type { Api, Context, Model, Models } from '@earendil-works/pi-ai';
 
+import { withCorsSafeHeaders, type FetchLike } from './corsSafeFetch';
+
 /** 一次工具调用的结果 */
 export interface ToolOutcome {
   /** 回给模型的文本（模型靠它判断下一步） */
@@ -46,6 +48,8 @@ export interface RunTurnOptions extends TurnCallbacks {
   /** 最多转几圈。防模型陷入「调用→结果→再调用」的死循环 */
   maxSteps?: number;
   signal?: AbortSignal;
+  /** 换掉底层的 fetch（测试用）。省略时会自动套上 corsSafeFetch */
+  fetch?: FetchLike;
 }
 
 export interface TurnResult {
@@ -91,6 +95,15 @@ function describeStreamError(message: { errorMessage?: string; content?: { type:
 export async function runTurn(opts: RunTurnOptions): Promise<TurnResult> {
   const maxSteps = opts.maxSteps ?? DEFAULT_MAX_STEPS;
 
+  /**
+   * ★ 所有请求都套一层 fetch：摘掉 OpenAI SDK 自动加的那串 `x-stainless-*`。
+   *
+   * 不加这一步，ModelScope 这类「白名单式 CORS」的兼容端点会在预检就被浏览器挡掉，
+   * 表现成 `TypeError: Failed to fetch` —— 而 curl 试是通的，极难排查。
+   * 详见 corsSafeFetch.ts。
+   */
+  const fetchImpl = opts.fetch ?? withCorsSafeHeaders();
+
   let text = '';
   let toolCalls = 0;
   let steps = 0;
@@ -100,7 +113,10 @@ export async function runTurn(opts: RunTurnOptions): Promise<TurnResult> {
     steps = step + 1;
     opts.onStep?.(steps);
 
-    const stream = opts.models.stream(opts.model, opts.context, { signal: opts.signal });
+    const stream = opts.models.stream(opts.model, opts.context, {
+      signal: opts.signal,
+      fetch: fetchImpl,
+    });
 
     for await (const event of stream) {
       switch (event.type) {
