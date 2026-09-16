@@ -1196,7 +1196,7 @@ function fromMenu(open: () => void): void {
 
 // ── 数据与备份 ────────────────────────────────────────────────
 
-const APP_VERSION = '0.1.2';
+const APP_VERSION = '0.1.3';
 
 function makeDataPanel(theStore: Store): DataPanel {
   return new DataPanel({
