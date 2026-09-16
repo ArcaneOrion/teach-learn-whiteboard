@@ -36,19 +36,33 @@ pnpm preview     # 起一个本地服务器预览 dist/
 安卓工程在 `android/`（Capacitor 生成，已入库）。准备好 **JDK 21** 和 **Android SDK** 之后：
 
 ```bash
-pnpm build            # 先出网页产物
-npx cap sync android  # 把 dist/ 和原生插件同步进安卓工程
-cd android && ./gradlew assembleDebug
-# 产物：android/app/build/outputs/apk/debug/app-debug.apk（约 9.7 MB）
+pnpm apk
 ```
+
+一条命令做完：版本号 +1 → 构建网页 → 同步进安卓工程 → 出 APK，
+产物是 `.artifacts/apk/whiteboard-<版本>-debug.apk`，
+并且**自动删掉上一个版本的 APK**（那个目录里永远只有最新一个）。
 
 装到手机上，两种都行：
 
 ```bash
-adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+adb install -r .artifacts/apk/whiteboard-<版本>-debug.apk
 ```
 
 或者把 APK 传到手机（网盘 / 微信 / USB），点一下安装，允许「安装未知应用」。
+
+### 版本号只有一个来源
+
+改 `package.json` 的 `version`，然后用 `pnpm version:sync` 刷到另外两处
+（`build.gradle` 的 `versionName`/`versionCode`、`main.ts` 的 `APP_VERSION`）——
+三处不一致不会有任何报错，只会在某次装包时变成「我明明装了新版怎么还是老样子」，
+所以别手改，交给脚本。
+
+`pnpm apk` 每次自动把补丁号 +1（`0.1.1` → `0.1.2`）。这是必须的：
+安卓靠 `versionCode` 这个整数判断新旧，**不递增就会被当成降级、直接拒装**。
+
+要调试构建过程时也可以分步来：`pnpm build` → `npx cap sync android` →
+`cd android && ./gradlew assembleDebug`。
 
 工具链版本（Capacitor 8 + 模板定死的）：compileSdk 36 · build-tools 36 · Gradle 8.14.3
 （`gradlew` 会自己下载）· minSdk 24（安卓 7.0 起）。

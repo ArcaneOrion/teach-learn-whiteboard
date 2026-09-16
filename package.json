@@ -1,7 +1,7 @@
 {
   "name": "teach-learn-whiteboard",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "共写白板 —— 安卓本地学习白板",
   "scripts": {
@@ -14,7 +14,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "sync-server": "node server/sync-server.mjs",
-    "sample-pdf": "node scripts/make-sample-pdf.mjs"
+    "sample-pdf": "node scripts/make-sample-pdf.mjs",
+    "version:show": "node scripts/version.mjs show",
+    "version:sync": "node scripts/version.mjs sync",
+    "apk": "node scripts/build-apk.mjs"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.2",
